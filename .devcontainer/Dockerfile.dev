@@ -1,0 +1,17 @@
+FROM python:3.10
+
+# Installiere benötigte Pakete für OpenCV & Tesseract OCR
+RUN apt-get update && apt-get install -y \
+    tesseract-ocr \
+    libtesseract-dev \
+    libasound2-dev \
+    libavcodec-extra \
+    libavformat-dev \
+    libswscale-dev \
+    libxext6 \
+    libxrender-dev \
+    libsm6 \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install poetry
