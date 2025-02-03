@@ -26,7 +26,7 @@ RUN pip install poetry
 
 # Installiere Abhängigkeiten nur mit Poetry (ohne virtuelle Umgebung in `/app/.venv`)
 RUN poetry config virtualenvs.create false \
-    && poetry install --no-dev --no-interaction --no-ansi
+    && poetry install --no-interaction --no-ansi
 
 # Kopiere den gesamten Code ins Image
 COPY . /app
