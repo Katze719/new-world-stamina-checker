@@ -36,7 +36,8 @@ async def download_video(youtube_url):
     ydl_opts = {
         "outtmpl": video_path,
         'format': 'bestvideo[height<=1080]+bestaudio/best',
-        'merge_output_format': 'mp4'
+        'merge_output_format': 'mp4',
+        "cookies": "/app/cookies.txt"
     }
 
     await asyncio.to_thread(lambda: yt_dlp.YoutubeDL(ydl_opts).download([youtube_url]))
