@@ -44,6 +44,7 @@ async def download_video(youtube_url, interaction: discord.Interaction):
         'format': 'bestvideo[height<=1080]+bestaudio/best',
         'merge_output_format': 'mp4',
         'progress_hooks': [progress_hook],  # Correctly handles async in a sync function
+        'proxy': 'socks5://tor_proxy:9050'
     }
     
     await asyncio.to_thread(lambda: yt_dlp.YoutubeDL(ydl_opts).download([youtube_url]))
