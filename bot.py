@@ -25,30 +25,45 @@ tree = app_commands.CommandTree(bot)
 stamina_lock = asyncio.Lock()
 stamina_queue = deque()
 
-async def download_video(youtube_url, interaction):
+async def download_video(youtube_url, interaction: discord.Interaction):
     video_path = f"{DOWNLOAD_FOLDER}video.mp4"
     
+    # Get the running event loop to use later in the thread
+    loop = asyncio.get_running_loop()
+
+    def progress_hook(d):
+        if loop.is_running():
+            future = asyncio.run_coroutine_threadsafe(report_progress(d, interaction), loop)
+            try:
+                future.result()  # Ensure any errors in the coroutine get raised
+            except Exception as e:
+                print(f"Error in progress_hook: {e}")
+
     ydl_opts = {
         "outtmpl": video_path,
         'format': 'bestvideo[height<=1080]+bestaudio/best',
         'merge_output_format': 'mp4',
-        'progress_hooks': [lambda d: asyncio.create_task(report_progress(d, interaction))],
-        'proxy': 'socks5://tor_proxy:9050'
+        'progress_hooks': [progress_hook],  # Correctly handles async in a sync function
     }
     
     await asyncio.to_thread(lambda: yt_dlp.YoutubeDL(ydl_opts).download([youtube_url]))
     return video_path
 
-async def report_progress(d, interaction):
+async def report_progress(d, interaction: discord.Interaction):
     if d['status'] == 'downloading':
         downloaded = d.get('downloaded_bytes', 0)
         total = d.get('total_bytes', d.get('total_bytes_estimate', 0))
         if total > 0:
             percent = downloaded / total * 100
-            embed = discord.Embed(title="📥 Video-Download", description=f"Fortschritt: {percent:.2f}% ({downloaded / 1_048_576:.2f} MB / {total / 1_048_576:.2f} MB)", color=discord.Color.blue())
-            await interaction.edit_original_response(embed=embed)
+            if int(percent) % 5 == 0:
+                embed = discord.Embed(
+                    title="📥 Video-Download",
+                    description=f"Fortschritt: {percent:.2f}% ({downloaded / 1_048_576:.2f} MB / {total / 1_048_576:.2f} MB)",
+                    color=discord.Color.blue()
+                )
+                await interaction.edit_original_response(embed=embed)
 
-def analyze_stamina(video_path, interaction):
+async def analyze_stamina(video_path, interaction: discord.Interaction):
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         return "Fehler: Video konnte nicht geladen werden!"
@@ -75,7 +90,7 @@ def analyze_stamina(video_path, interaction):
         if frame_count % 20 == 0:
             percent_done = (frame_count / total_frames) * 100
             embed = discord.Embed(title="🔍 Analyse läuft", description=f"{frame_count}/{total_frames} Frames verarbeitet ({percent_done:.2f}%)", color=discord.Color.blue())
-            asyncio.create_task(interaction.edit_original_response(embed=embed))
+            await interaction.edit_original_response(embed=embed)
 
         height, width, _ = frame.shape
         roi_x1, roi_x2 = int(width * 0.495), int(width * 0.505)
@@ -135,7 +150,7 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str):
             embed.title = "🔍 Analyse läuft"
             embed.description = "Analysiere Stamina-Status..."
             await interaction.edit_original_response(embed=embed)
-            result = await asyncio.to_thread(analyze_stamina, video_path, interaction)
+            result = await analyze_stamina(video_path, interaction)
 
             embed.title = "✅ Analyse abgeschlossen!"
             embed.description = result
