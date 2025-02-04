@@ -11,44 +11,49 @@ from collections import deque
 
 pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
 
-# Discord Bot Token (ersetzen mit deinem)
 DISCORD_TOKEN = os.getenv("BOT_TOKEN")
 
-# Verzeichnisse für Downloads und Ergebnisse
 DOWNLOAD_FOLDER = "./downloads/"
 OUTPUT_FOLDER = "./output/"
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-# Discord-Bot mit Intents
 intents = discord.Intents.default()
 bot = discord.Client(intents=intents)
 tree = app_commands.CommandTree(bot)
 
-# Warteschlange und Sperre
 stamina_lock = asyncio.Lock()
 stamina_queue = deque()
 
-# Asynchrone Funktion zum Herunterladen eines YouTube-Videos mit yt-dlp
-async def download_video(youtube_url):
+async def download_video(youtube_url, interaction):
     video_path = f"{DOWNLOAD_FOLDER}video.mp4"
     
     ydl_opts = {
         "outtmpl": video_path,
         'format': 'bestvideo[height<=1080]+bestaudio/best',
         'merge_output_format': 'mp4',
-        'proxy': 'socks5://tor_proxy:9050'  # Tor-Proxy manuell setzen
+        'progress_hooks': [lambda d: asyncio.create_task(report_progress(d, interaction))],
+        'proxy': 'socks5://tor_proxy:9050'
     }
-
+    
     await asyncio.to_thread(lambda: yt_dlp.YoutubeDL(ydl_opts).download([youtube_url]))
     return video_path
 
-# Asynchrone Funktion zur Stamina-Analyse
-def analyze_stamina(video_path):
+async def report_progress(d, interaction):
+    if d['status'] == 'downloading':
+        downloaded = d.get('downloaded_bytes', 0)
+        total = d.get('total_bytes', d.get('total_bytes_estimate', 0))
+        if total > 0:
+            percent = downloaded / total * 100
+            embed = discord.Embed(title="📥 Video-Download", description=f"Fortschritt: {percent:.2f}% ({downloaded / 1_048_576:.2f} MB / {total / 1_048_576:.2f} MB)", color=discord.Color.blue())
+            await interaction.edit_original_response(embed=embed)
+
+def analyze_stamina(video_path, interaction):
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         return "Fehler: Video konnte nicht geladen werden!"
 
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     fps = int(cap.get(cv2.CAP_PROP_FPS))
     frames_to_skip = fps * 3
     skip_until_frame = 0
@@ -66,6 +71,11 @@ def analyze_stamina(video_path):
         frame_count += 1
         if frame_count < skip_until_frame:
             continue
+
+        if frame_count % 20 == 0:
+            percent_done = (frame_count / total_frames) * 100
+            embed = discord.Embed(title="🔍 Analyse läuft", description=f"{frame_count}/{total_frames} Frames verarbeitet ({percent_done:.2f}%)", color=discord.Color.blue())
+            asyncio.create_task(interaction.edit_original_response(embed=embed))
 
         height, width, _ = frame.shape
         roi_x1, roi_x2 = int(width * 0.495), int(width * 0.505)
@@ -97,10 +107,9 @@ def analyze_stamina(video_path):
             skip_until_frame = frame_count + frames_to_skip
     
     cap.release()
-    os.remove(f"{DOWNLOAD_FOLDER}video.mp4")
+    os.remove(video_path)
     return f"Stamina auf 0 gefallen: {zero_stamina_count} Mal"
 
-# Slash Command für Stamina-Check
 @tree.command(name="stamina_check", description="Analysiert ein YouTube-Video auf Stamina-Null-Zustände.")
 async def stamina_check(interaction: discord.Interaction, youtube_url: str):
     stamina_queue.append(interaction)
@@ -121,12 +130,12 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str):
             embed.title = "📥 Video-Download"
             embed.description = "Lade Video herunter..."
             await interaction.edit_original_response(embed=embed)
-            video_path = await download_video(youtube_url)
+            video_path = await download_video(youtube_url, interaction)
 
             embed.title = "🔍 Analyse läuft"
             embed.description = "Analysiere Stamina-Status..."
             await interaction.edit_original_response(embed=embed)
-            result = await asyncio.to_thread(analyze_stamina, video_path)
+            result = await asyncio.to_thread(analyze_stamina, video_path, interaction)
 
             embed.title = "✅ Analyse abgeschlossen!"
             embed.description = result
@@ -138,7 +147,6 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str):
             embed.color = discord.Color.red()
             await interaction.edit_original_response(embed=embed)
 
-# Bot starten
 @bot.event
 async def on_ready():
     await tree.sync()
