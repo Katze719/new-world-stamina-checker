@@ -25,14 +25,19 @@ tree = app_commands.CommandTree(bot)
 stamina_lock = asyncio.Lock()
 stamina_queue = deque()
 
-async def download_video(youtube_url, msg: discord.WebhookMessage):
+async def edit_msg(interaction: discord.Interaction, msg_id: int, embed: discord.Embed):
+    msg = await interaction.channel.fetch_message(msg_id)
+    if msg:
+        await msg.edit(embed=embed)
+
+async def download_video(youtube_url, interaction: discord.Interaction, msg_id: int):
     video_path = f"{DOWNLOAD_FOLDER}video.mp4"
     
     loop = asyncio.get_running_loop()
 
     def progress_hook(d):
         if loop.is_running():
-            future = asyncio.run_coroutine_threadsafe(report_progress(d, msg), loop)
+            future = asyncio.run_coroutine_threadsafe(report_progress(d, interaction, msg_id), loop)
             try:
                 future.result()
             except Exception as e:
@@ -43,13 +48,13 @@ async def download_video(youtube_url, msg: discord.WebhookMessage):
         'format': 'bestvideo[height<=1080]+bestaudio/best',
         'merge_output_format': 'mp4',
         'progress_hooks': [progress_hook],
-        # 'proxy': 'socks5://tor_proxy:9050'
+        'proxy': 'socks5://tor_proxy:9050'
     }
     
     await asyncio.to_thread(lambda: yt_dlp.YoutubeDL(ydl_opts).download([youtube_url]))
     return video_path
 
-async def report_progress(d, msg: discord.WebhookMessage):
+async def report_progress(d, interaction: discord.Interaction, msg_id: int):
     if d['status'] == 'downloading':
         downloaded = d.get('downloaded_bytes', 0)
         total = d.get('total_bytes', d.get('total_bytes_estimate', 0))
@@ -61,9 +66,9 @@ async def report_progress(d, msg: discord.WebhookMessage):
                     description=f"Fortschritt: {percent:.2f}% ({downloaded / 1_048_576:.2f} MB / {total / 1_048_576:.2f} MB)",
                     color=discord.Color.blue()
                 )
-                await msg.edit(embed=embed)
+                await edit_msg(interaction, msg_id, embed)
 
-async def analyze_stamina(video_path, msg: discord.WebhookMessage):
+async def analyze_stamina(video_path, interaction: discord.Interaction, msg_id: int):
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         return "Fehler: Video konnte nicht geladen werden!"
@@ -94,7 +99,7 @@ async def analyze_stamina(video_path, msg: discord.WebhookMessage):
                 description=f"{frame_count}/{total_frames} Frames verarbeitet ({percent_done:.2f}%)",
                 color=discord.Color.blue()
             )
-            await msg.edit(embed=embed)
+            await edit_msg(interaction, msg_id, embed)
 
         height, width, _ = frame.shape
         roi_x1, roi_x2 = int(width * 0.495), int(width * 0.505)
@@ -146,36 +151,36 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str):
         color=discord.Color.blue()
     )
     await interaction.response.send_message(embed=base_msg)
-    msg = await interaction.followup.send(embed=embed, wait=True)
-    
+    msg = await interaction.channel.send(embed=embed)
+
     while stamina_queue[0] != interaction:
         await asyncio.sleep(1)
         new_position = stamina_queue.index(interaction) + 1
         embed.description = f"Du bist jetzt auf Platz {new_position} in der Warteschlange."
-        await msg.edit(embed=embed)
+        await edit_msg(interaction, msg.id, embed)
 
     async with stamina_lock:
         stamina_queue.popleft()
         try:
             embed.title = "📥 Video-Download"
             embed.description = "Lade Video herunter..."
-            await msg.edit(embed=embed)
-            video_path = await download_video(youtube_url, msg)
+            await edit_msg(interaction, msg.id, embed)
+            video_path = await download_video(youtube_url, interaction, msg.id)
 
             embed.title = "🔍 Analyse läuft"
             embed.description = "Analysiere Stamina-Status..."
-            await msg.edit(embed=embed)
-            result = await analyze_stamina(video_path, msg)
+            await edit_msg(interaction, msg.id, embed)
+            result = await analyze_stamina(video_path, interaction, msg.id)
 
             embed.title = "✅ Analyse abgeschlossen!"
             embed.description = result
             embed.color = discord.Color.green()
-            await msg.edit(embed=embed)
+            await edit_msg(interaction, msg.id, embed)
         except Exception as e:
             embed.title = "❌ Fehler"
             embed.description = str(e)
             embed.color = discord.Color.red()
-            await msg.edit(embed=embed)
+            await edit_msg(interaction, msg.id, embed)
 
 @bot.event
 async def on_ready():
