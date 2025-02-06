@@ -9,8 +9,10 @@ import re
 import asyncio
 import shutil
 import time
+import json
 from videoAnalyzer import VideoAnalyzer
 from collections import deque
+from logger import logger as log
 
 pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
 
@@ -101,12 +103,54 @@ def format_time(seconds):
     seconds = int(seconds % 60)
     return f"{minutes:02}:{seconds:02}"
 
+# Datei, in der die Kanäle gespeichert werden
+VOD_CHANNELS_FILE_PATH = "./vod_channels.json"
+vod_channels_file_lock = asyncio.Lock()
+
+def load_channels():
+    if not os.path.exists(VOD_CHANNELS_FILE_PATH):
+        return []
+    with open(VOD_CHANNELS_FILE_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+async def save_channels(channels):
+    with open(VOD_CHANNELS_FILE_PATH, "w", encoding="utf-8") as f:
+        json.dump(channels, f, indent=4)
+
+@tree.command(name="add_this_channel", description="Füge diesen Channel zur VOD-Prüfliste hinzu")
+async def add_this_channel(interaction: discord.Interaction):
+    async with vod_channels_file_lock:
+        channels = load_channels()
+        channel_id = interaction.channel.id
+    
+        if channel_id in channels:
+            await interaction.response.send_message("Dieser Channel ist bereits in der VOD-Prüfliste.", ephemeral=True)
+            return
+    
+        channels.append(channel_id)
+        await save_channels(channels)
+        await interaction.response.send_message("Channel wurde erfolgreich zur VOD-Prüfliste hinzugefügt!", ephemeral=True)
+
+@tree.command(name="remove_this_channel", description="Entferne diesen Channel von der VOD-Prüfliste")
+async def remove_this_channel(interaction: discord.Interaction):
+    async with vod_channels_file_lock:
+        channels = load_channels()
+        channel_id = interaction.channel.id
+    
+        if channel_id not in channels:
+            await interaction.response.send_message("Dieser Channel ist nicht in der VOD-Prüfliste.", ephemeral=True)
+            return
+    
+        channels.remove(channel_id)
+        await save_channels(channels)
+        await interaction.response.send_message("Channel wurde erfolgreich von der VOD-Prüfliste entfernt!", ephemeral=True)
+
 @tree.command(name="stamina_check", description="Analysiert ein YouTube-Video auf Stamina-Null-Zustände.")
 async def stamina_check(interaction: discord.Interaction, youtube_url: str, debug_mode: bool = False):
     stamina_queue.append(interaction)
     position = len(stamina_queue)
 
-    print(f"Neue anfrage von {interaction.user.display_name}, warteschlange ist {len(stamina_queue) - 1}")
+    log.info(f"Neue anfrage von {interaction.user.display_name}, warteschlange ist {len(stamina_queue) - 1}")
 
     base_msg = discord.Embed(
         title="🏁 Stamina Check startet gleich!",
@@ -121,8 +165,6 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
     )
     await interaction.response.send_message(embed=base_msg, ephemeral=True)
     
-    await asyncio.sleep(3)
-
     msg = await interaction.followup.send(embed=embed, wait=True)
 
     while stamina_queue[0] != interaction:
@@ -134,6 +176,10 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
     async with stamina_lock:
         stamina_queue.popleft()
         try:
+            log.info(f"Geht los für {interaction.user.display_name}")
+
+            shutil.rmtree(DOWNLOAD_FOLDER)
+            shutil.rmtree(OUTPUT_FOLDER)
             os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
             os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
@@ -141,6 +187,7 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
             embed.description = "Lade Video herunter..."
             await edit_msg(interaction, msg.id, embed)
 
+            log.info("Starte Download")
             time_start_download = time.time()
             video_path = await download_video(youtube_url, interaction, msg.id)
             time_end_download = time.time()
@@ -153,6 +200,7 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
             embed.description = f"Trainiere Algorythmus mit {training_frame_count} von {video_analyzer.frame_count} Frames..."
             await edit_msg(interaction, msg.id, embed)
 
+            log.info("Starte Training")
             time_start_training = time.time()
             stable_rectangle = await video_analyzer.find_stable_rectangle(training_frame_count)
             time_end_training = time.time()
@@ -174,6 +222,7 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
                 )
                 await edit_msg(interaction, msg.id, embed)
 
+            log.info("Starte Analyse")
             time_start_analyze = time.time()
             timestamps = await video_analyzer.analyze_video(stable_rectangle, send_progress_update)
             time_end_analyze = time.time()
@@ -192,14 +241,11 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
         if debug_mode:
             await send_images(interaction, OUTPUT_FOLDER)
 
-        shutil.rmtree(DOWNLOAD_FOLDER)
-        shutil.rmtree(OUTPUT_FOLDER)
-
-        print(f"Anfrage Fertig von {interaction.user.display_name}")
+        log.info(f"Anfrage Fertig von {interaction.user.display_name}")
 
 @bot.event
 async def on_ready():
     await tree.sync()
-    print(f"✅ {bot.user} ist online und bereit!")
+    log.info(f"✅ {bot.user} ist online und bereit!")
 
 bot.run(DISCORD_TOKEN)
