@@ -106,6 +106,8 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
     stamina_queue.append(interaction)
     position = len(stamina_queue)
 
+    print(f"Neue anfrage von {interaction.user.display_name}, warteschlange ist {len(stamina_queue) - 1}")
+
     base_msg = discord.Embed(
         title="🏁 Stamina Check startet gleich!",
         description="🔍 Bereite alles vor...\n\n⚙️ **Warteschlange wird organisiert...**\n\n🕐 Bitte habe etwas Geduld!",
@@ -118,8 +120,10 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
         color=discord.Color.blue()
     )
     await interaction.response.send_message(embed=base_msg, ephemeral=True)
+    
     await asyncio.sleep(3)
-    msg = await interaction.channel.send(embed=embed)
+
+    msg = await interaction.followup.send(embed=embed, wait=True)
 
     while stamina_queue[0] != interaction:
         await asyncio.sleep(10)
@@ -162,8 +166,16 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
             embed.description = f"Analysiere {video_analyzer.frame_count} Frames..."
             await edit_msg(interaction, msg.id, embed)
 
+            async def send_progress_update(processed: int, total: int):
+                embed = discord.Embed(
+                    title="🔍 Analyse läuft...",
+                    description=f"Fortschritt: {processed} von {total} Frames analysiert.",
+                    color=discord.Color.blue()
+                )
+                await edit_msg(interaction, msg.id, embed)
+
             time_start_analyze = time.time()
-            timestamps = await video_analyzer.analyze_video(stable_rectangle)
+            timestamps = await video_analyzer.analyze_video(stable_rectangle, send_progress_update)
             time_end_analyze = time.time()
 
             embed.title = "✅ Analyse abgeschlossen!"
@@ -182,6 +194,8 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
 
         shutil.rmtree(DOWNLOAD_FOLDER)
         shutil.rmtree(OUTPUT_FOLDER)
+
+        print(f"Anfrage Fertig von {interaction.user.display_name}")
 
 @bot.event
 async def on_ready():

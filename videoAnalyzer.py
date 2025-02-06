@@ -55,7 +55,7 @@ class VideoAnalyzer:
         self.cap.release()
         return self._get_best_rectangle()
 
-    async def analyze_video(self, stable_rectangle):
+    async def analyze_video(self, stable_rectangle, on_progress = None):
         if not stable_rectangle:
             print("Kein stabiles Rechteck gefunden.")
             return
@@ -71,6 +71,9 @@ class VideoAnalyzer:
             if not ret:
                 break
             
+            if on_progress and frame_number % 1000 == 0:
+                await on_progress(frame_number, self.frame_count)
+
             frame_number += 1
             x1, y1, x2, y2 = self._calculate_roi(frame)
             roi = frame[y1:y2, x1:x2]
