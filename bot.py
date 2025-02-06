@@ -7,6 +7,8 @@ import pytesseract
 import numpy as np
 import re
 import asyncio
+import shutil
+from videoAnalyzer import VideoAnalyzer
 from collections import deque
 
 pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
@@ -30,6 +32,17 @@ async def edit_msg(interaction: discord.Interaction, msg_id: int, embed: discord
     if msg:
         await msg.edit(embed=embed)
 
+async def resend_ephemeral_message(interaction: discord.Interaction, msg_id: int, embed: discord.Embed):
+    # Nachricht in einem internen Speicher (Datenbank, Dictionary) gespeichert
+    try:
+        await interaction.followup.delete_message(msg_id)  # Löscht die alte ephemere Nachricht
+    except discord.NotFound:
+        pass  # Falls die Nachricht nicht mehr existiert
+
+    new_msg = await interaction.followup.send(embed=embed, ephemeral=True)  # Sende neue ephemere Nachricht
+    return new_msg.id  # Speichere die neue Message-ID
+
+
 async def download_video(youtube_url, interaction: discord.Interaction, msg_id: int):
     video_path = f"{DOWNLOAD_FOLDER}video.mp4"
     
@@ -47,8 +60,8 @@ async def download_video(youtube_url, interaction: discord.Interaction, msg_id: 
         "outtmpl": video_path,
         'format': 'bestvideo[height<=1080]+bestaudio/best',
         'merge_output_format': 'mp4',
-        'progress_hooks': [progress_hook],
-        'proxy': 'socks5://tor_proxy:9050'
+        # 'progress_hooks': [progress_hook],
+        # 'proxy': 'socks5://tor_proxy:9050'
     }
     
     await asyncio.to_thread(lambda: yt_dlp.YoutubeDL(ydl_opts).download([youtube_url]))
@@ -68,74 +81,21 @@ async def report_progress(d, interaction: discord.Interaction, msg_id: int):
                 )
                 await edit_msg(interaction, msg_id, embed)
 
-async def analyze_stamina(video_path, interaction: discord.Interaction, msg_id: int):
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        return "Fehler: Video konnte nicht geladen werden!"
-
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = int(cap.get(cv2.CAP_PROP_FPS))
-    frames_to_skip = fps * 3
-    skip_until_frame = 0
-
-    zero_stamina_count = 0
-    frame_count = 0
-    consecutive_zero_frames = 0
-    required_zero_frames = 1
-
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        
-        frame_count += 1
-        if frame_count < skip_until_frame:
-            continue
-
-        if frame_count % 20 == 0:
-            percent_done = (frame_count / total_frames) * 100
-            embed = discord.Embed(
-                title="🔍 Analyse läuft",
-                description=f"{frame_count}/{total_frames} Frames verarbeitet ({percent_done:.2f}%)",
-                color=discord.Color.blue()
-            )
-            await edit_msg(interaction, msg_id, embed)
-
-        height, width, _ = frame.shape
-        roi_x1, roi_x2 = int(width * 0.495), int(width * 0.505)
-        roi_y1, roi_y2 = int(height * 0.91), int(height * 0.93)
-        roi = frame[roi_y1:roi_y2, roi_x1:roi_x2]
-
-        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-        gray = cv2.GaussianBlur(gray, (3, 3), 0)
-        gray = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
-
-        black_pixels = np.sum(gray == 0)
-        total_pixels = gray.size
-        black_ratio = black_pixels / total_pixels
-        
-        if black_ratio >= 0.25:
-            is_zero_stamina = False
-        else:
-            custom_config = "--psm 10 digits"
-            stamina_text = pytesseract.image_to_string(gray, config=custom_config).strip()
-            is_zero_stamina = re.fullmatch(r"0", stamina_text) is not None
-
-        if is_zero_stamina:
-            consecutive_zero_frames += 1
-        else:
-            consecutive_zero_frames = 0
-
-        if consecutive_zero_frames == required_zero_frames:
-            zero_stamina_count += 1
-            skip_until_frame = frame_count + frames_to_skip
+async def send_images(interaction: discord.Interaction, folder_path: str):
+    """Sendet alle Bilder aus einem Ordner als ephemere Nachrichten an den User."""
+    files = [f for f in os.listdir(folder_path) if f.endswith(('.png', '.jpg', '.jpeg', '.gif'))]
     
-    cap.release()
-    os.remove(video_path)
-    return f"Stamina auf 0 gefallen: {zero_stamina_count} Mal"
+    if not files:
+        await interaction.followup.send("Keine Bilder im Ordner gefunden.", ephemeral=True)
+        return
+
+    for file in files:
+        file_path = os.path.join(folder_path, file)
+        with open(file_path, "rb") as img:
+            await interaction.followup.send(file=discord.File(img, filename=file), ephemeral=True)
 
 @tree.command(name="stamina_check", description="Analysiert ein YouTube-Video auf Stamina-Null-Zustände.")
-async def stamina_check(interaction: discord.Interaction, youtube_url: str):
+async def stamina_check(interaction: discord.Interaction, youtube_url: str, debug_mode: bool = False):
     stamina_queue.append(interaction)
     position = len(stamina_queue)
 
@@ -150,11 +110,12 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str):
         description=f"Du bist auf Platz {position} in der Warteschlange.",
         color=discord.Color.blue()
     )
-    await interaction.response.send_message(embed=base_msg)
+    await interaction.response.send_message(embed=base_msg, ephemeral=True)
+    await asyncio.sleep(3)
     msg = await interaction.channel.send(embed=embed)
 
     while stamina_queue[0] != interaction:
-        await asyncio.sleep(1)
+        await asyncio.sleep(10)
         new_position = stamina_queue.index(interaction) + 1
         embed.description = f"Du bist jetzt auf Platz {new_position} in der Warteschlange."
         await edit_msg(interaction, msg.id, embed)
@@ -162,18 +123,37 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str):
     async with stamina_lock:
         stamina_queue.popleft()
         try:
+            os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
+            os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
             embed.title = "📥 Video-Download"
             embed.description = "Lade Video herunter..."
             await edit_msg(interaction, msg.id, embed)
             video_path = await download_video(youtube_url, interaction, msg.id)
 
-            embed.title = "🔍 Analyse läuft"
-            embed.description = "Analysiere Stamina-Status..."
+            
+            video_analyzer = VideoAnalyzer(video_path, debug=debug_mode)
+            training_frame_count = min(15000, video_analyzer.frame_count)
+
+            embed.title = "🚀 Training läuft"
+            embed.description = f"Trainiere Algorythmus mit {training_frame_count} von {video_analyzer.frame_count} Frames..."
             await edit_msg(interaction, msg.id, embed)
-            result = await analyze_stamina(video_path, interaction, msg.id)
+
+            stable_rectangle = await video_analyzer.find_stable_rectangle(training_frame_count)
+
+            if debug_mode:
+                embed.title = "Stabiles Rechteck"
+                embed.description = f"Gefunden auf: {stable_rectangle}"
+                await interaction.followup.send(embed=embed, ephemeral=True)
+
+            embed.title = "🔍 Analyse läuft"
+            embed.description = f"Analysiere {video_analyzer.frame_count} Frames..."
+            await edit_msg(interaction, msg.id, embed)
+
+            timestamps = await video_analyzer.analyze_video(stable_rectangle)
 
             embed.title = "✅ Analyse abgeschlossen!"
-            embed.description = result
+            embed.description = f"{timestamps}"
             embed.color = discord.Color.green()
             await edit_msg(interaction, msg.id, embed)
         except Exception as e:
@@ -181,6 +161,12 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str):
             embed.description = str(e)
             embed.color = discord.Color.red()
             await edit_msg(interaction, msg.id, embed)
+
+        if debug_mode:
+            await send_images(interaction, OUTPUT_FOLDER)
+
+        shutil.rmtree(DOWNLOAD_FOLDER)
+        shutil.rmtree(OUTPUT_FOLDER)
 
 @bot.event
 async def on_ready():

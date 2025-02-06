@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 from collections import Counter
 import os
+import asyncio
 
 class VideoAnalyzer:
     def __init__(self, video_path, output_dir="./output/", debug=False):
@@ -28,7 +29,7 @@ class VideoAnalyzer:
         self.rectangle_counter = Counter()
         self.saved_timestamps = []
         
-    def find_stable_rectangle(self):
+    async def find_stable_rectangle(self, training_frame_count: int):
         frame_number = 0
         while self.cap.isOpened():
             ret, frame = self.cap.read()
@@ -36,12 +37,12 @@ class VideoAnalyzer:
                 break
 
             frame_number += 1
-            if frame_number > 15000:
+            if frame_number > training_frame_count:
                 break
 
             x1, y1, x2, y2 = self._calculate_roi(frame)
             roi = frame[y1:y2, x1:x2]
-            contours = self._find_contours(roi)
+            contours = await asyncio.to_thread(self._find_contours, roi)
             
             for contour in contours:
                 x, y, w, h = self._validate_rectangle(contour, x1, y1)
@@ -54,7 +55,7 @@ class VideoAnalyzer:
         self.cap.release()
         return self._get_best_rectangle()
 
-    def analyze_video(self, stable_rectangle):
+    async def analyze_video(self, stable_rectangle):
         if not stable_rectangle:
             print("Kein stabiles Rechteck gefunden.")
             return
@@ -73,7 +74,7 @@ class VideoAnalyzer:
             frame_number += 1
             x1, y1, x2, y2 = self._calculate_roi(frame)
             roi = frame[y1:y2, x1:x2]
-            contours = self._find_contours(roi)
+            contours = await asyncio.to_thread(self._find_contours, roi)
             
             for contour in contours:
                 x, y, w, h = self._validate_rectangle(contour, x1, y1)
@@ -139,7 +140,7 @@ class VideoAnalyzer:
 
 if __name__ == "__main__":
     video_analyzer = VideoAnalyzer("./downloads/video.mp4", debug=True)
-    stable_rectangle = video_analyzer.find_stable_rectangle()
-    timestamps = video_analyzer.analyze_video(stable_rectangle)
+    stable_rectangle = asyncio.run(video_analyzer.find_stable_rectangle(15000))
+    timestamps = asyncio.run(video_analyzer.analyze_video(stable_rectangle))
 
     print(timestamps)
