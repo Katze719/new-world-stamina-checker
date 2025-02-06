@@ -8,6 +8,7 @@ import numpy as np
 import re
 import asyncio
 import shutil
+import time
 from videoAnalyzer import VideoAnalyzer
 from collections import deque
 
@@ -94,6 +95,12 @@ async def send_images(interaction: discord.Interaction, folder_path: str):
         with open(file_path, "rb") as img:
             await interaction.followup.send(file=discord.File(img, filename=file), ephemeral=True)
 
+def format_time(seconds):
+    """Wandelt Sekunden in ein MM:SS Format um."""
+    minutes = int(seconds // 60)
+    seconds = int(seconds % 60)
+    return f"{minutes:02}:{seconds:02}"
+
 @tree.command(name="stamina_check", description="Analysiert ein YouTube-Video auf Stamina-Null-Zustände.")
 async def stamina_check(interaction: discord.Interaction, youtube_url: str, debug_mode: bool = False):
     stamina_queue.append(interaction)
@@ -129,7 +136,10 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
             embed.title = "📥 Video-Download"
             embed.description = "Lade Video herunter..."
             await edit_msg(interaction, msg.id, embed)
+
+            time_start_download = time.time()
             video_path = await download_video(youtube_url, interaction, msg.id)
+            time_end_download = time.time()
 
             
             video_analyzer = VideoAnalyzer(video_path, debug=debug_mode)
@@ -139,7 +149,9 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
             embed.description = f"Trainiere Algorythmus mit {training_frame_count} von {video_analyzer.frame_count} Frames..."
             await edit_msg(interaction, msg.id, embed)
 
+            time_start_training = time.time()
             stable_rectangle = await video_analyzer.find_stable_rectangle(training_frame_count)
+            time_end_training = time.time()
 
             if debug_mode:
                 embed.title = "Stabiles Rechteck"
@@ -150,10 +162,13 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
             embed.description = f"Analysiere {video_analyzer.frame_count} Frames..."
             await edit_msg(interaction, msg.id, embed)
 
+            time_start_analyze = time.time()
             timestamps = await video_analyzer.analyze_video(stable_rectangle)
+            time_end_analyze = time.time()
 
             embed.title = "✅ Analyse abgeschlossen!"
-            embed.description = f"{timestamps}"
+            t_info = f"**Verbrauche Zeit:** {format_time(time_end_analyze - time_start_download)}\n- Download: {format_time(time_end_download - time_start_download)}\n- Training: {format_time(time_end_training - time_start_training)}\n- Analyse: {format_time(time_end_analyze - time_start_analyze)}"
+            embed.description = f"{t_info}\n\n⏱ **Gefundene Zeitstempel:**\n" + "\n".join(f"{idx+1}. {ts}" for idx, ts in enumerate(timestamps))
             embed.color = discord.Color.green()
             await edit_msg(interaction, msg.id, embed)
         except Exception as e:
