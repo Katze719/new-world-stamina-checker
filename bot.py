@@ -150,7 +150,7 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
     stamina_queue.append(interaction)
     position = len(stamina_queue)
 
-    log.info(f"Neue anfrage von {interaction.user.display_name}, warteschlange ist {len(stamina_queue) - 1}")
+    log.info(f"Neue anfrage von {interaction.user.display_name}, warteschlange ist {len(stamina_queue)}")
 
     base_msg = discord.Embed(
         title="🏁 Stamina Check startet gleich!",
@@ -172,6 +172,9 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
         new_position = stamina_queue.index(interaction) + 1
         embed.description = f"Du bist jetzt auf Platz {new_position} in der Warteschlange."
         await edit_msg(interaction, msg.id, embed)
+
+    embed.description = "Du bist als nächstes drann."
+    await edit_msg(interaction, msg.id, embed)
 
     async with stamina_lock:
         stamina_queue.popleft()
@@ -227,9 +230,22 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
             timestamps = await video_analyzer.analyze_video(stable_rectangle, send_progress_update)
             time_end_analyze = time.time()
 
+            if len(timestamps) > 10:
+                message = "Bitte noch etwas an deinem Staminamanagement arbeiten!"
+            else:
+                message = "Wow! weiter so, dein Staminamangement ist göttlich!"
+
             embed.title = "✅ Analyse abgeschlossen!"
-            t_info = f"**Verbrauche Zeit:** {format_time(time_end_analyze - time_start_download)}\n- Download: {format_time(time_end_download - time_start_download)}\n- Training: {format_time(time_end_training - time_start_training)}\n- Analyse: {format_time(time_end_analyze - time_start_analyze)}"
-            embed.description = f"{t_info}\n\n⏱ **Gefundene Zeitstempel:**\n" + "\n".join(f"{idx+1}. {ts}" for idx, ts in enumerate(timestamps))
+
+            if debug_mode:
+                t_info = f"**Verbrauche Zeit:** {format_time(time_end_analyze - time_start_download)}\n- Download: {format_time(time_end_download - time_start_download)}\n- Training: {format_time(time_end_training - time_start_training)}\n- Analyse: {format_time(time_end_analyze - time_start_analyze)}\n\n"
+            else:
+                t_info = ""
+            embed.description = f"{t_info}⏱ **An Folgenden Stellen bist du Out Of Stamina:**\n{message}\n"
+
+            for idx, timestamp in enumerate(timestamps):
+                embed.add_field(name="", value=f"**#{idx}.** {timestamp}", inline=True)
+
             embed.color = discord.Color.green()
             await edit_msg(interaction, msg.id, embed)
         except Exception as e:
