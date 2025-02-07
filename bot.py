@@ -281,7 +281,7 @@ async def on_message(message: discord.Message):
     if message.author.bot:
         return
     
-    channels = load_channels()
+    channels = await load_channels()
     if message.channel.id not in channels:
         return
     
