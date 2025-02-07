@@ -96,43 +96,43 @@ def format_time(seconds):
 VOD_CHANNELS_FILE_PATH = "./vod_channels.json"
 vod_channels_file_lock = asyncio.Lock()
 
-def load_channels():
-    if not os.path.exists(VOD_CHANNELS_FILE_PATH):
-        return []
-    with open(VOD_CHANNELS_FILE_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+async def load_channels():
+    async with vod_channels_file_lock:
+        if not os.path.exists(VOD_CHANNELS_FILE_PATH):
+            return []
+        with open(VOD_CHANNELS_FILE_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
 
 async def save_channels(channels):
-    with open(VOD_CHANNELS_FILE_PATH, "w", encoding="utf-8") as f:
-        json.dump(channels, f, indent=4)
+    async with vod_channels_file_lock:
+        with open(VOD_CHANNELS_FILE_PATH, "w", encoding="utf-8") as f:
+            json.dump(channels, f, indent=4)
 
 @tree.command(name="add_this_channel", description="Füge diesen Channel zur VOD-Prüfliste hinzu")
 async def add_this_channel(interaction: discord.Interaction):
-    async with vod_channels_file_lock:
-        channels = load_channels()
-        channel_id = interaction.channel.id
-    
-        if channel_id in channels:
-            await interaction.response.send_message("Dieser Channel ist bereits in der VOD-Prüfliste.", ephemeral=True)
-            return
-    
-        channels.append(channel_id)
-        await save_channels(channels)
-        await interaction.response.send_message("Channel wurde erfolgreich zur VOD-Prüfliste hinzugefügt!", ephemeral=True)
+    channels = await load_channels()
+    channel_id = interaction.channel.id
+
+    if channel_id in channels:
+        await interaction.response.send_message("Dieser Channel ist bereits in der VOD-Prüfliste.", ephemeral=True)
+        return
+
+    channels.append(channel_id)
+    await save_channels(channels)
+    await interaction.response.send_message("Channel wurde erfolgreich zur VOD-Prüfliste hinzugefügt!", ephemeral=True)
 
 @tree.command(name="remove_this_channel", description="Entferne diesen Channel von der VOD-Prüfliste")
 async def remove_this_channel(interaction: discord.Interaction):
-    async with vod_channels_file_lock:
-        channels = load_channels()
-        channel_id = interaction.channel.id
-    
-        if channel_id not in channels:
-            await interaction.response.send_message("Dieser Channel ist nicht in der VOD-Prüfliste.", ephemeral=True)
-            return
-    
-        channels.remove(channel_id)
-        await save_channels(channels)
-        await interaction.response.send_message("Channel wurde erfolgreich von der VOD-Prüfliste entfernt!", ephemeral=True)
+    channels = await load_channels()
+    channel_id = interaction.channel.id
+
+    if channel_id not in channels:
+        await interaction.response.send_message("Dieser Channel ist nicht in der VOD-Prüfliste.", ephemeral=True)
+        return
+
+    channels.remove(channel_id)
+    await save_channels(channels)
+    await interaction.response.send_message("Channel wurde erfolgreich von der VOD-Prüfliste entfernt!", ephemeral=True)
 
 @tree.command(name="stamina_check", description="Analysiert ein YouTube-Video auf Stamina-Null-Zustände.")
 async def stamina_check(interaction: discord.Interaction, youtube_url: str, debug_mode: bool = False):
@@ -225,7 +225,7 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
             else:
                 message = "Wow! weiter so, dein Staminamangement ist göttlich!"
 
-            embed.title = "✅ Analyse abgeschlossen!"
+            embed.title = f"✅ Analyse abgeschlossen! für {youtube_url}"
 
             if debug_mode:
                 t_info = f"**Verbrauche Zeit:** {format_time(time_end_analyze - time_start_download)}\n- Download: {format_time(time_end_download - time_start_download)}\n- Training: {format_time(time_end_training - time_start_training)}\n- Analyse: {format_time(time_end_analyze - time_start_analyze)}\n\n"
@@ -258,6 +258,16 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
 
         log.info(f"Anfrage Fertig von {interaction.user.display_name}")
 
+@tree.command(name="get_queue_length", description="Zeit die länge der Warteschlange an.")
+async def get_queue_length(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="Warteschlange",
+        description=f"In der Warteschlange sind aktuell {len(stamina_queue)} VOD's.",
+        color=discord.Color.blue()
+    )
+    await interaction.response.send_message(embed=embed)
+
+
 @bot.event
 async def on_ready():
     await tree.sync()
@@ -279,9 +289,11 @@ async def on_message(message: discord.Message):
     if match:
         stamina_queue.append(message.id)
 
+        youtube_url = match.group()
+
         embed = discord.Embed()
         embed.title = f"Neues VOD von {message.author.display_name}"
-        embed.description = f"{message.content}\n\nJump: {message.jump_url}"
+        embed.description = f"{message.content}\n{message.created_at}\n\nJump: {message.jump_url}"
         embed.color = discord.Color.blue()
 
         channel = bot.get_channel(1337499488272519299)
@@ -290,44 +302,73 @@ async def on_message(message: discord.Message):
 
         await message.add_reaction("⏳")
 
-        while stamina_queue[0] != message.id:
-            await asyncio.sleep(10)
+        attempt = 0
+        retries = 60
+        while attempt < retries:
+            try:
+                while stamina_queue[0] != message.id:
+                    await asyncio.sleep(10)
 
-        async with stamina_lock:
-            log.info(f"Bearbeite VOD hidden for {message.author.display_name}")
-            video_path = await download_video(message.content)
-            video_analyzer = VideoAnalyzer(video_path)
-            stable_rectangle = await video_analyzer.find_stable_rectangle(15000)
+                async with stamina_lock:
+                    attempt += 1
+                    stamina_queue.popleft()
+                    
+                    shutil.rmtree(DOWNLOAD_FOLDER)
+                    os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
-            async def send_progress_update(processed: int, total: int):
-                log.info(f"Fortschritt: {processed} von {total} Frames analysiert.")
+                    log.info(f"Bearbeite VOD hidden for {message.author.display_name}")
+                    video_path = await download_video(youtube_url)
+                    video_analyzer = VideoAnalyzer(video_path)
+                    stable_rectangle = await video_analyzer.find_stable_rectangle(15000)
 
-            timestamps = await video_analyzer.analyze_video(stable_rectangle, send_progress_update)
-            if len(timestamps) > 10:
-                mot_message = "Bitte noch etwas an deinem Staminamanagement arbeiten!"
-            else:
-                mot_message = "Wow! weiter so, dein Staminamangement ist göttlich!"
+                    async def send_progress_update(processed: int, total: int):
+                        log.info(f"Fortschritt: {processed} von {total} Frames analysiert.")
 
-            embed = discord.Embed()
-            embed.title = "✅ Analyse abgeschlossen!"
-            embed.description = f"⏱ **An Folgenden Stellen bist du Out Of Stamina:**\n{mot_message}\n"
-            embed.color = discord.Color.green()
+                    timestamps = await video_analyzer.analyze_video(stable_rectangle, send_progress_update)
+                    if len(timestamps) > 10:
+                        mot_message = "Bitte noch etwas an deinem Staminamanagement arbeiten!"
+                    else:
+                        mot_message = "Wow! weiter so, dein Staminamangement ist göttlich!"
 
-            # Liste für die drei Gruppen
-            fields = ["", "", ""]
-            # Alle Timestamps durchgehen und in die passende Gruppe einordnen
-            for index, timestamp in enumerate(timestamps, start=1):
-                group_index = (index - 1) // (len(timestamps) // 3)  # Bestimmt die Gruppe (0, 1 oder 2)
-                group_index = min(group_index, 2)  # Falls `remaining_items` existiert, Begrenzung auf max. 2
-                fields[group_index] += f"**#{index}.** {timestamp}\n"
+                    embed = discord.Embed()
+                    embed.title = f"✅ Analyse abgeschlossen! für {youtube_url}"
+                    embed.description = f"⏱ **An Folgenden Stellen bist du Out Of Stamina:**\n{mot_message}\n"
+                    embed.color = discord.Color.green()
 
-            # Felder zum Embed hinzufügen
-            for field_content in fields:
-                embed.add_field(name="", value=field_content, inline=True)
+                    # Liste für die drei Gruppen
+                    fields = ["", "", ""]
+                    # Alle Timestamps durchgehen und in die passende Gruppe einordnen
+                    for index, timestamp in enumerate(timestamps, start=1):
+                        group_index = (index - 1) // (len(timestamps) // 3)  # Bestimmt die Gruppe (0, 1 oder 2)
+                        group_index = min(group_index, 2)  # Falls `remaining_items` existiert, Begrenzung auf max. 2
+                        fields[group_index] += f"**#{index}.** {timestamp}\n"
 
-            await message.channel.send(embed=embed)
+                    # Felder zum Embed hinzufügen
+                    for field_content in fields:
+                        embed.add_field(name="", value=field_content, inline=True)
 
-            await message.remove_reaction("⏳", bot.user)
-            await message.add_reaction("✅")
+                    await message.channel.send(embed=embed)
+
+                    await message.remove_reaction("⏳", bot.user)
+                    await message.add_reaction("✅")
+
+                    log.info(f"Fertig mit VOD hidden for {message.author.display_name}")
+                    return
+            except yt_dlp.utils.DownloadError as e:
+                log.error(f"Download Error: {str(e)}")
+                log.info(f"Putting VOD {message.id} from {message.author.display_name} back into queue.")
+                stamina_queue.append(message.id)
+
+        log.warning(f"Max Retries reached for VOD from {message.author.display_name}, dropping VOD.")
+        if message.id in stamina_queue:
+            stamina_queue.remove(message.id)
+
+        embed = discord.Embed()
+        embed.title = f"❌ Dein video ist entweder noch nicht hochgeladen oder noch nicht verarbeitet von youtube! {youtube_url}"
+        embed.description = f"Dein VOD wird übersprungen, nutze `/stamina_check {youtube_url}` um es nochmal manuel zu versuchen."
+        embed.color = discord.Color.red()
+
+        await message.channel.send(embed=embed)
+
 
 bot.run(DISCORD_TOKEN)
