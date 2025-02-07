@@ -24,6 +24,7 @@ os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 intents = discord.Intents.default()
+intents.message_content = True
 bot = discord.Client(intents=intents)
 tree = app_commands.CommandTree(bot)
 
@@ -46,25 +47,13 @@ async def resend_ephemeral_message(interaction: discord.Interaction, msg_id: int
     return new_msg.id  # Speichere die neue Message-ID
 
 
-async def download_video(youtube_url, interaction: discord.Interaction, msg_id: int):
+async def download_video(youtube_url):
     video_path = f"{DOWNLOAD_FOLDER}video.mp4"
     
-    loop = asyncio.get_running_loop()
-
-    def progress_hook(d):
-        if loop.is_running():
-            future = asyncio.run_coroutine_threadsafe(report_progress(d, interaction, msg_id), loop)
-            try:
-                future.result()
-            except Exception as e:
-                print(f"Error in progress_hook: {e}")
-
     ydl_opts = {
         "outtmpl": video_path,
         'format': 'bestvideo[height<=1080]+bestaudio/best',
         'merge_output_format': 'mp4',
-        # 'progress_hooks': [progress_hook],
-        # 'proxy': 'socks5://tor_proxy:9050'
     }
     
     await asyncio.to_thread(lambda: yt_dlp.YoutubeDL(ydl_opts).download([youtube_url]))
@@ -147,7 +136,7 @@ async def remove_this_channel(interaction: discord.Interaction):
 
 @tree.command(name="stamina_check", description="Analysiert ein YouTube-Video auf Stamina-Null-Zustände.")
 async def stamina_check(interaction: discord.Interaction, youtube_url: str, debug_mode: bool = False):
-    stamina_queue.append(interaction)
+    stamina_queue.append(interaction.id)
     position = len(stamina_queue)
 
     log.info(f"Neue anfrage von {interaction.user.display_name}, warteschlange ist {len(stamina_queue)}")
@@ -167,9 +156,9 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
     
     msg = await interaction.followup.send(embed=embed, wait=True)
 
-    while stamina_queue[0] != interaction:
+    while stamina_queue[0] != interaction.id:
         await asyncio.sleep(10)
-        new_position = stamina_queue.index(interaction) + 1
+        new_position = stamina_queue.index(interaction.id) + 1
         embed.description = f"Du bist jetzt auf Platz {new_position} in der Warteschlange."
         await edit_msg(interaction, msg.id, embed)
 
@@ -192,7 +181,7 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
 
             log.info("Starte Download")
             time_start_download = time.time()
-            video_path = await download_video(youtube_url, interaction, msg.id)
+            video_path = await download_video(youtube_url)
             time_end_download = time.time()
 
             
@@ -223,6 +212,7 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
                     description=f"Fortschritt: {processed} von {total} Frames analysiert.",
                     color=discord.Color.blue()
                 )
+                log.info(f"Fortschritt: {processed} von {total} Frames analysiert.")
                 await edit_msg(interaction, msg.id, embed)
 
             log.info("Starte Analyse")
@@ -243,8 +233,17 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
                 t_info = ""
             embed.description = f"{t_info}⏱ **An Folgenden Stellen bist du Out Of Stamina:**\n{message}\n"
 
-            for idx, timestamp in enumerate(timestamps):
-                embed.add_field(name="", value=f"**#{idx}.** {timestamp}", inline=True)
+            # Liste für die drei Gruppen
+            fields = ["", "", ""]
+            # Alle Timestamps durchgehen und in die passende Gruppe einordnen
+            for index, timestamp in enumerate(timestamps, start=1):
+                group_index = (index - 1) // (len(timestamps) // 3)  # Bestimmt die Gruppe (0, 1 oder 2)
+                group_index = min(group_index, 2)  # Falls `remaining_items` existiert, Begrenzung auf max. 2
+                fields[group_index] += f"**#{index}.** {timestamp}\n"
+
+            # Felder zum Embed hinzufügen
+            for field_content in fields:
+                embed.add_field(name="", value=field_content, inline=True)
 
             embed.color = discord.Color.green()
             await edit_msg(interaction, msg.id, embed)
@@ -263,5 +262,72 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
 async def on_ready():
     await tree.sync()
     log.info(f"✅ {bot.user} ist online und bereit!")
+
+# YouTube-Link-Erkennung
+YOUTUBE_REGEX = re.compile(r"(https?://)?(www\.)?(youtube\.com|youtu\.?be)/.+")
+
+@bot.event
+async def on_message(message: discord.Message):
+    if message.author.bot:
+        return
+    
+    channels = load_channels()
+    if message.channel.id not in channels:
+        return
+    
+    match = YOUTUBE_REGEX.search(message.content)
+    if match:
+        stamina_queue.append(message.id)
+
+        embed = discord.Embed()
+        embed.title = f"Neues VOD von {message.author.display_name}"
+        embed.description = f"{message.content}\n\nJump: {message.jump_url}"
+        embed.color = discord.Color.blue()
+
+        channel = bot.get_channel(1337499488272519299)
+        if channel:
+            await channel.send(embed=embed)
+
+        await message.add_reaction("⏳")
+
+        while stamina_queue[0] != message.id:
+            await asyncio.sleep(10)
+
+        async with stamina_lock:
+            log.info(f"Bearbeite VOD hidden for {message.author.display_name}")
+            video_path = await download_video(message.content)
+            video_analyzer = VideoAnalyzer(video_path)
+            stable_rectangle = await video_analyzer.find_stable_rectangle(15000)
+
+            async def send_progress_update(processed: int, total: int):
+                log.info(f"Fortschritt: {processed} von {total} Frames analysiert.")
+
+            timestamps = await video_analyzer.analyze_video(stable_rectangle, send_progress_update)
+            if len(timestamps) > 10:
+                mot_message = "Bitte noch etwas an deinem Staminamanagement arbeiten!"
+            else:
+                mot_message = "Wow! weiter so, dein Staminamangement ist göttlich!"
+
+            embed = discord.Embed()
+            embed.title = "✅ Analyse abgeschlossen!"
+            embed.description = f"⏱ **An Folgenden Stellen bist du Out Of Stamina:**\n{mot_message}\n"
+            embed.color = discord.Color.green()
+
+            # Liste für die drei Gruppen
+            fields = ["", "", ""]
+            # Alle Timestamps durchgehen und in die passende Gruppe einordnen
+            for index, timestamp in enumerate(timestamps, start=1):
+                group_index = (index - 1) // (len(timestamps) // 3)  # Bestimmt die Gruppe (0, 1 oder 2)
+                group_index = min(group_index, 2)  # Falls `remaining_items` existiert, Begrenzung auf max. 2
+                fields[group_index] += f"**#{index}.** {timestamp}\n"
+
+            # Felder zum Embed hinzufügen
+            for field_content in fields:
+                embed.add_field(name="", value=field_content, inline=True)
+
+            await message.channel.send(embed=embed)
+
+            await message.remove_reaction("⏳", bot.user)
+            await message.add_reaction("✅")
 
 bot.run(DISCORD_TOKEN)
