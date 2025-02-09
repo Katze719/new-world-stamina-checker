@@ -1,0 +1,33 @@
+## Version 0.2.0-alpha.36
+
+### **Added**
+- Implementiert den Befehl `/get_queue_length`, um die Anzahl der ausstehenden VODs in der Warteschlange anzuzeigen.
+- Implementiert den Befehl `/changelog`, um den die letzten Änderungen auszugeben.
+
+### **Algorithmus-Änderungen & Fixes**
+- **Stamina-Leistenerkennung:**  
+  - Fixed ein Problem, bei dem die Stamina-Leiste zu weit rechts erkannt wurde.  
+  - Fixed ein Problem, bei dem die Stamina-Leiste fälschlicherweise als „out of stamina“ erkannt wurde, obwohl noch mehr als 0.001 gelbe Pixel vorhanden waren.
+
+- **VOD-Ergebnisübermittlung:**  
+  - Fixed ein Problem, bei dem keine Nachricht gesendet werden konnte, wenn die VOD-Ergebnisse zu viel Text enthielten.
+
+- **Debug-Modus für Stamina-Check:**  
+  - Fixed ein Problem im `debug_mode` (`/stamina_check youtube_url:<url> debug_mode:True`), bei dem Bilder einzeln versendet wurden.  
+    - Bilder werden jetzt immer in Paketen von 10 Bildern versendet.
+
+- **Analyse von „Hidden“ VODs:**  
+  - Fixed einen Deadlock, der auftrat, wenn ein „hidden“ VOD analysiert wurde und der Benutzer gleichzeitig eine manuelle Analyse auslöste, was zu einem Absturz führte.  
+  > „Hidden“ VODs sind solche, bei denen der Befehl nicht direkt ausgeführt, sondern durch das Posten eines YouTube-Links ausgelöst wird.
+
+### **Bekannte Probleme**
+- **Farberkennung der Stamina-Leiste:**  
+  - Es gibt noch eine offene Problematik, bei der die Gelbtöne in VOD-Analysen variieren, was zu inkonsistenter Erkennung der Stamina-Leiste führen kann.  
+  - Das Problem wird derzeit analysiert und ein Patch ist in Arbeit.
+
+- **Falsche Objekterkennung als Stamina-Leiste:**  
+  - In manchen Fällen wird das **War Board** fälschlicherweise als Stamina-Leiste erkannt.  
+  - Vereinzelt kam es vor, dass das **Inventar** als Stamina-Leiste interpretiert wurde.  
+  - Beide Probleme werden derzeit untersucht.
+
+---
