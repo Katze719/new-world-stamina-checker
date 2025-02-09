@@ -101,6 +101,7 @@ async def save_channels(channels):
 
 @tree.command(name="add_this_channel", description="Füge diesen Channel zur VOD-Prüfliste hinzu")
 async def add_this_channel(interaction: discord.Interaction, hidden: bool = False):
+    interaction.response.defer()
     channels = await load_channels()
     channel_id = str(interaction.channel.id)
 
@@ -117,6 +118,7 @@ async def add_this_channel(interaction: discord.Interaction, hidden: bool = Fals
 
 @tree.command(name="remove_this_channel", description="Entferne diesen Channel von der VOD-Prüfliste")
 async def remove_this_channel(interaction: discord.Interaction):
+    interaction.response.defer()
     channels = await load_channels()
     channel_id = str(interaction.channel.id)
 
