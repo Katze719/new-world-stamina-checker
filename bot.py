@@ -81,9 +81,18 @@ vod_channels_file_lock = asyncio.Lock()
 async def load_channels():
     async with vod_channels_file_lock:
         if not os.path.exists(VOD_CHANNELS_FILE_PATH):
-            return []
+            return {}
         with open(VOD_CHANNELS_FILE_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+        # Falls die Datei eine Liste ist, migrieren wir sie in ein Dictionary mit default `hidden: False`
+        if isinstance(data, list):
+            data = {str(channel_id): {"hidden": False} for channel_id in data}
+            await save_channels(data)
+        # Sicherstellen, dass jeder Channel das `hidden`-Attribut hat
+        for channel_id, info in data.items():
+            if "hidden" not in info:
+                info["hidden"] = False
+        return data
 
 async def save_channels(channels):
     async with vod_channels_file_lock:
@@ -91,28 +100,31 @@ async def save_channels(channels):
             json.dump(channels, f, indent=4)
 
 @tree.command(name="add_this_channel", description="Füge diesen Channel zur VOD-Prüfliste hinzu")
-async def add_this_channel(interaction: discord.Interaction):
+async def add_this_channel(interaction: discord.Interaction, hidden: bool = False):
     channels = await load_channels()
-    channel_id = interaction.channel.id
+    channel_id = str(interaction.channel.id)
 
     if channel_id in channels:
         await interaction.response.send_message("Dieser Channel ist bereits in der VOD-Prüfliste.", ephemeral=True)
         return
 
-    channels.append(channel_id)
+    channels[channel_id] = {"hidden": hidden}
     await save_channels(channels)
-    await interaction.response.send_message("Channel wurde erfolgreich zur VOD-Prüfliste hinzugefügt!", ephemeral=True)
+    await interaction.response.send_message(
+        f"Channel wurde erfolgreich zur VOD-Prüfliste hinzugefügt! (Hidden: {hidden})",
+        ephemeral=True
+    )
 
 @tree.command(name="remove_this_channel", description="Entferne diesen Channel von der VOD-Prüfliste")
 async def remove_this_channel(interaction: discord.Interaction):
     channels = await load_channels()
-    channel_id = interaction.channel.id
+    channel_id = str(interaction.channel.id)
 
     if channel_id not in channels:
         await interaction.response.send_message("Dieser Channel ist nicht in der VOD-Prüfliste.", ephemeral=True)
         return
 
-    channels.remove(channel_id)
+    del channels[channel_id]
     await save_channels(channels)
     await interaction.response.send_message("Channel wurde erfolgreich von der VOD-Prüfliste entfernt!", ephemeral=True)
 
@@ -204,10 +216,7 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
             timestamps = await video_analyzer.analyze_video(stable_rectangle, send_progress_update)
             time_end_analyze = time.time()
 
-            if len(timestamps) > 10:
-                message = "Bitte noch etwas an deinem Staminamanagement arbeiten!"
-            else:
-                message = "Wow! weiter so, dein Staminamangement ist göttlich!"
+            message = get_feedback_message(len(timestamps))
 
             embed.title = f"✅ Analyse abgeschlossen! für {youtube_url}"
 
@@ -251,6 +260,29 @@ async def get_queue_length(interaction: discord.Interaction):
     )
     await interaction.response.send_message(embed=embed)
 
+def get_feedback_message(stamina_events):
+    """Gibt eine spezifische Nachricht basierend auf der Anzahl der Out-of-Stamina-Ereignisse zurück."""
+    if 0 == stamina_events:
+        return "Hör auf Tank zu Spielen"
+    elif 1 <= stamina_events <= 3:
+        return "🌟 Dein Stamina-Management ist **GÖTTLICH**! Weiter so! 💪🔥 Du bist ein **MEISTER** deiner Klasse!!! 🏆✨"
+    elif 4 <= stamina_events <= 8:
+        return "⚡ Dein Stamina-Management ist **grandios**! 🔥 Weiter so! Bald kann man dich **Meister deiner Klasse** nennen! 🏅👏"
+    elif 9 <= stamina_events <= 20:
+        return "💪 Alles unter **20 Mal „out of Stamina“** in einem Krieg kann man immer noch als **richtig, richtig STARK** bezeichnen! 🏆 Weiter so!!! 🚀"
+    elif 21 <= stamina_events <= 30:
+        return "👍 **Sehr gut!** Du bist auf dem richtigen WEG! 🛤 Der nächste Meilenstein ist, nicht mehr als **15 Mal** in einem Krieg „out of Stamina“ zu sein! DU schaffst das!!! 💥🔥"
+    elif 31 <= stamina_events <= 40:
+        return "🤔 **Okay, damit kann man arbeiten.** 🛠 Nächstes Ziel ist es, **NICHT mehr als 20 Mal** „out of Stamina“ zu dodgen! 💪 Das packst DU!!! 🚀"
+    elif 41 <= stamina_events <= 50:
+        return "😬 **Das geht sicherlich noch ein wenig besser.** 😕 Versuch, dein Stamina-Management im Auge zu behalten! 👀"
+    elif 51 <= stamina_events <= 100:
+        return "📉 **Du hast noch eine Menge zu lernen …** 🏋️♂️ Wende dich an deinen Coach für nützliche Tipps zu deinem Stamina-Management! 🎯 Ziel: **Nicht mehr als 50 Mal einen grauen BALKEN** zu haben. ⚠️ Gegen starke Gegner kann man dich so nicht wirklich effektiv einsetzen. 😔 Aber das wird besser, **vertrau mir!** 🙂💪"
+    elif 100 <= stamina_events <= 200:
+        return "💀 **Uff … na gut … hmm … was soll ich sagen?** 🤯 Einigen wir uns einfach darauf, dass **ICH verbuggt bin!** 🖥️💥\n\n💾 **Liebe Grüße … der New World VOD Stamina Checker … ERROR … ERROR … ERROR …**\n\n🚨 **Ne im ERNST jetzt!** 🛑\nHör auf, deine **SHIFT-TASTE** zu misshandeln!!! ⌨️⚠️\n\n😅 **Bleib bitte am Ball, aller Anfang ist schwer!** 🏋️♂️✨"
+    else:
+        return "🤷 **Ich habe keine passende Nachricht für diese Anzahl an Events.** Vielleicht ein neuer Rekord? 🏆🤣"
+
 
 @bot.event
 async def on_ready():
@@ -284,7 +316,10 @@ async def on_message(message: discord.Message):
         if channel:
             await channel.send(embed=embed)
 
-        await message.add_reaction("⏳")
+        channel_hidden = channels[message.channel.id]["hidden"]
+    
+        if channel_hidden == False:
+            await message.add_reaction("⏳")
 
         attempt = 0
         retries = 60
@@ -312,10 +347,8 @@ async def on_message(message: discord.Message):
                         log.info(f"Fortschritt: {processed} von {total} Frames analysiert.")
 
                     timestamps = await video_analyzer.analyze_video(stable_rectangle, send_progress_update)
-                    if len(timestamps) > 10:
-                        mot_message = "Bitte noch etwas an deinem Staminamanagement arbeiten!"
-                    else:
-                        mot_message = "Wow! weiter so, dein Staminamangement ist göttlich!"
+
+                    mot_message = get_feedback_message(len(timestamps))
 
                     embed = discord.Embed()
                     embed.title = f"✅ Analyse abgeschlossen! für {youtube_url}"
@@ -338,17 +371,24 @@ async def on_message(message: discord.Message):
                             embed.add_field(name="Keine Ausgabe", value="Du bist zu oft out of stamina, (message ist zu groß zum senden!)")
                             embed.color = discord.Color.red()
 
-                    await message.channel.send(embed=embed)
-
-                    await message.remove_reaction("⏳", bot.user)
-                    await message.add_reaction("✅")
+                    if channel_hidden == False:
+                        await message.channel.send(embed=embed)
+                        await message.remove_reaction("⏳", bot.user)
+                        await message.add_reaction("✅")
+                    else:
+                        coach_channel = bot.get_channel(1338135324500562022)
+                        if coach_channel:
+                            embed.title = f"Neues VOD von {message.author.display_name}"
+                            await coach_channel.send(embed=embed)
 
                     log.info(f"Fertig mit VOD hidden for {message.author.display_name}")
                     return
             except yt_dlp.utils.DownloadError as e:
                 log.error(f"Download Error: {str(e)}")
-                log.info(f"Putting VOD {message.id} from {message.author.display_name} back into queue.")
-                stamina_queue.append(message.id)
+            
+            await asyncio.sleep(120)
+            log.info(f"Putting VOD {message.id} from {message.author.display_name} back into queue.")
+            stamina_queue.append(message.id)
 
         log.warning(f"Max Retries reached for VOD from {message.author.display_name}, dropping VOD.")
         if message.id in stamina_queue:
