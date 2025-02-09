@@ -32,20 +32,12 @@ stamina_lock = asyncio.Lock()
 stamina_queue = deque()
 
 async def edit_msg(interaction: discord.Interaction, msg_id: int, embed: discord.Embed):
-    msg = await interaction.channel.fetch_message(msg_id)
-    if msg:
-        await msg.edit(embed=embed)
-
-async def resend_ephemeral_message(interaction: discord.Interaction, msg_id: int, embed: discord.Embed):
-    # Nachricht in einem internen Speicher (Datenbank, Dictionary) gespeichert
     try:
-        await interaction.followup.delete_message(msg_id)  # Löscht die alte ephemere Nachricht
-    except discord.NotFound:
-        pass  # Falls die Nachricht nicht mehr existiert
-
-    new_msg = await interaction.followup.send(embed=embed, ephemeral=True)  # Sende neue ephemere Nachricht
-    return new_msg.id  # Speichere die neue Message-ID
-
+        msg = await interaction.channel.fetch_message(msg_id)
+        if msg:
+            await msg.edit(embed=embed)
+    except (discord.NotFound, discord.HTTPException) as e:
+        log.error(f"Message wurde wahrscheinlich gelöscht: {str(e)}")
 
 async def download_video(youtube_url):
     video_path = f"{DOWNLOAD_FOLDER}video.mp4"
@@ -59,32 +51,27 @@ async def download_video(youtube_url):
     await asyncio.to_thread(lambda: yt_dlp.YoutubeDL(ydl_opts).download([youtube_url]))
     return video_path
 
-async def report_progress(d, interaction: discord.Interaction, msg_id: int):
-    if d['status'] == 'downloading':
-        downloaded = d.get('downloaded_bytes', 0)
-        total = d.get('total_bytes', d.get('total_bytes_estimate', 0))
-        if total > 0:
-            percent = downloaded / total * 100
-            if int(percent) % 5 == 0:
-                embed = discord.Embed(
-                    title="📥 Video-Download",
-                    description=f"Fortschritt: {percent:.2f}% ({downloaded / 1_048_576:.2f} MB / {total / 1_048_576:.2f} MB)",
-                    color=discord.Color.blue()
-                )
-                await edit_msg(interaction, msg_id, embed)
-
 async def send_images(interaction: discord.Interaction, folder_path: str):
-    """Sendet alle Bilder aus einem Ordner als ephemere Nachrichten an den User."""
+    """Sendet alle Bilder aus einem Ordner in 10er-Blöcken als ephemere Nachrichten."""
     files = [f for f in os.listdir(folder_path) if f.endswith(('.png', '.jpg', '.jpeg', '.gif'))]
-    
+
     if not files:
         await interaction.followup.send("Keine Bilder im Ordner gefunden.", ephemeral=True)
         return
 
-    for file in files:
-        file_path = os.path.join(folder_path, file)
-        with open(file_path, "rb") as img:
-            await interaction.followup.send(file=discord.File(img, filename=file), ephemeral=True)
+    # In 10er-Gruppen aufteilen
+    batch_size = 10
+    for i in range(0, len(files), batch_size):
+        batch_files = files[i:i + batch_size]  # 10 Bilder pro Durchlauf
+
+        file_objects = []
+        for file in batch_files:
+            file_path = os.path.join(folder_path, file)
+            if os.path.exists(file_path):  # Überprüfen, ob die Datei existiert
+                file_objects.append(discord.File(file_path, filename=file))
+
+        if file_objects:
+            await interaction.followup.send(files=file_objects, ephemeral=True)
 
 def format_time(seconds):
     """Wandelt Sekunden in ein MM:SS Format um."""
@@ -186,7 +173,9 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
 
             
             video_analyzer = VideoAnalyzer(video_path, debug=debug_mode)
-            training_frame_count = min(15000, video_analyzer.frame_count)
+            skip_first_frames = 5000
+            skip_first_frames = skip_first_frames if skip_first_frames > video_analyzer.frame_count else 0 
+            training_frame_count = min(30000, video_analyzer.frame_count)
 
             embed.title = "🚀 Training läuft"
             embed.description = f"Trainiere Algorythmus mit {training_frame_count} von {video_analyzer.frame_count} Frames..."
@@ -194,7 +183,7 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
 
             log.info("Starte Training")
             time_start_training = time.time()
-            stable_rectangle = await video_analyzer.find_stable_rectangle(training_frame_count)
+            stable_rectangle = await video_analyzer.find_stable_rectangle(training_frame_count, skip_first_frames)
             time_end_training = time.time()
 
             if debug_mode:
@@ -319,7 +308,10 @@ async def on_message(message: discord.Message):
                     log.info(f"Bearbeite VOD hidden for {message.author.display_name}")
                     video_path = await download_video(youtube_url)
                     video_analyzer = VideoAnalyzer(video_path)
-                    stable_rectangle = await video_analyzer.find_stable_rectangle(15000)
+                    skip_first_frames = 5000
+                    skip_first_frames = skip_first_frames if skip_first_frames > video_analyzer.frame_count else 0 
+                    training_frame_count = min(30000, video_analyzer.frame_count)
+                    stable_rectangle = await video_analyzer.find_stable_rectangle(training_frame_count, skip_first_frames)
 
                     async def send_progress_update(processed: int, total: int):
                         log.info(f"Fortschritt: {processed} von {total} Frames analysiert.")
@@ -345,7 +337,11 @@ async def on_message(message: discord.Message):
 
                     # Felder zum Embed hinzufügen
                     for field_content in fields:
-                        embed.add_field(name="", value=field_content, inline=True)
+                        if len(field_content) < 1000:
+                            embed.add_field(name="", value=field_content, inline=True)
+                        else:
+                            embed.add_field(name="Keine Ausgabe", value="Du bist zu oft out of stamina, (message ist zu groß zum senden!)")
+                            embed.color = discord.Color.red()
 
                     await message.channel.send(embed=embed)
 

@@ -29,16 +29,21 @@ class VideoAnalyzer:
         self.rectangle_counter = Counter()
         self.saved_timestamps = []
         
-    async def find_stable_rectangle(self, training_frame_count: int):
+    async def find_stable_rectangle(self, training_frame_count: int, skip_first_frames_count: int):
         frame_number = 0
+        min_x_threshold = self.frame_width * 0.5 - (self.frame_width * 0.05)  # 5% links von der Mitte
+
         while self.cap.isOpened():
             ret, frame = self.cap.read()
             if not ret:
                 break
 
             frame_number += 1
-            if frame_number > training_frame_count:
+            if frame_number > training_frame_count + skip_first_frames_count:
                 break
+
+            if frame_number < skip_first_frames_count:
+                continue
 
             x1, y1, x2, y2 = self._calculate_roi(frame)
             roi = frame[y1:y2, x1:x2]
@@ -46,7 +51,7 @@ class VideoAnalyzer:
             
             for contour in contours:
                 x, y, w, h = self._validate_rectangle(contour, x1, y1)
-                if x is not None:
+                if x is not None and x < min_x_threshold:  # Überprüfung, ob das Rechteck links von der Mitte liegt
                     detected_rect = frame[y:y+h, x:x+w]
                     yellow_ratio = self._calculate_yellow_ratio(detected_rect, w, h)
                     if yellow_ratio >= 0.25:
@@ -88,7 +93,7 @@ class VideoAnalyzer:
                         yellow_ratio = self._calculate_yellow_ratio(stable_rect, w_fixed, h_fixed)
                         if yellow_ratio > 0.08:
                             high_yellow_found = True
-                        if yellow_ratio < 0.02 and high_yellow_found:
+                        if yellow_ratio < 0.01 and high_yellow_found:
                             low_yellow_frame_count += 1
                             high_yellow_found = False
 
