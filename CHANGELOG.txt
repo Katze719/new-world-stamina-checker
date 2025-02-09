@@ -1,3 +1,24 @@
+## Version 0.2.0-alpha.38
+
+### **Fixes**
+- Fixed ein Problem "wo out of stamina" bei 00:00 erkannt worden ist was den fehler "division by 0" auslöst und den Bot crashed
+
+### **Bekannte Probleme**
+- **Farberkennung der Stamina-Leiste:**  
+  - Es gibt noch eine offene Problematik, bei der die Gelbtöne in VOD-Analysen variieren, was zu inkonsistenter Erkennung der Stamina-Leiste führen kann.  
+  - Das Problem wird derzeit analysiert und ein Patch ist in Arbeit.
+
+- **Falsche Objekterkennung als Stamina-Leiste:**  
+  - In manchen Fällen wird das **War Board** fälschlicherweise als Stamina-Leiste erkannt.  
+  - Vereinzelt kam es vor, dass das **Inventar** als Stamina-Leiste interpretiert wurde.  
+  - Beide Probleme werden derzeit untersucht.
+
+### **Geplante Features**
+- Automatisches erkennen vom Tod damit die Coaches eure Tode besser analysieren können ;D
+- Sonstige Analysen über VOD der nächsten 24H um ergebnisse in die Klassen channels zu posten
+
+---
+
 ## Version 0.2.0-alpha.37
 
 ### **Algorithmus-Änderungen & Fixes**

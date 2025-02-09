@@ -70,6 +70,8 @@ async def send_images(interaction: discord.Interaction, folder_path: str):
 
 def format_time(seconds):
     """Wandelt Sekunden in ein MM:SS Format um."""
+    if seconds == 0:
+        return "00:00"
     minutes = int(seconds // 60)
     seconds = int(seconds % 60)
     return f"{minutes:02}:{seconds:02}"
