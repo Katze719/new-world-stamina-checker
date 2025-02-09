@@ -84,10 +84,6 @@ async def load_channels():
             return {}
         with open(VOD_CHANNELS_FILE_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
-        # Falls die Datei eine Liste ist, migrieren wir sie in ein Dictionary mit default `hidden: False`
-        if isinstance(data, list):
-            data = {str(channel_id): {"hidden": False} for channel_id in data}
-            await save_channels(data)
         # Sicherstellen, dass jeder Channel das `hidden`-Attribut hat
         for channel_id, info in data.items():
             if "hidden" not in info:
@@ -95,13 +91,12 @@ async def load_channels():
         return data
 
 async def save_channels(channels):
-    async with vod_channels_file_lock:
+    # async with vod_channels_file_lock:
         with open(VOD_CHANNELS_FILE_PATH, "w", encoding="utf-8") as f:
             json.dump(channels, f, indent=4)
 
 @tree.command(name="add_this_channel", description="Füge diesen Channel zur VOD-Prüfliste hinzu")
 async def add_this_channel(interaction: discord.Interaction, hidden: bool = False):
-    interaction.response.defer()
     channels = await load_channels()
     channel_id = str(interaction.channel.id)
 
@@ -118,7 +113,6 @@ async def add_this_channel(interaction: discord.Interaction, hidden: bool = Fals
 
 @tree.command(name="remove_this_channel", description="Entferne diesen Channel von der VOD-Prüfliste")
 async def remove_this_channel(interaction: discord.Interaction):
-    interaction.response.defer()
     channels = await load_channels()
     channel_id = str(interaction.channel.id)
 
@@ -300,7 +294,7 @@ async def on_message(message: discord.Message):
         return
     
     channels = await load_channels()
-    if message.channel.id not in channels:
+    if str(message.channel.id) not in channels:
         return
     
     match = YOUTUBE_REGEX.search(message.content)
@@ -317,8 +311,9 @@ async def on_message(message: discord.Message):
         channel = bot.get_channel(1337499488272519299)
         if channel:
             await channel.send(embed=embed)
+            pass
 
-        channel_hidden = channels[message.channel.id]["hidden"]
+        channel_hidden = channels[str(message.channel.id)]["hidden"]
     
         if channel_hidden == False:
             await message.add_reaction("⏳")
