@@ -2,9 +2,6 @@ import discord
 from discord import app_commands
 import yt_dlp
 import os
-import cv2
-import pytesseract
-import numpy as np
 import re
 import asyncio
 import shutil
@@ -13,8 +10,6 @@ import json
 from videoAnalyzer import VideoAnalyzer
 from collections import deque
 from logger import logger as log
-
-pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
 
 DISCORD_TOKEN = os.getenv("BOT_TOKEN")
 

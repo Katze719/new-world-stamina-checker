@@ -1,3 +1,13 @@
+## Version 0.2.0-alpha.37
+
+### **Algorithmus-Änderungen & Fixes**
+- **Stamina-Leistenerkennung:**  
+  - Das Training überspringt nun die ersten **5000 Frames**, um frühzeitige Fehldetektionen zu vermeiden.  
+  - Die Anzahl der für das Training genutzten Frames wurde von **15.000 auf 30.000** erhöht, um eine präzisere Lokalisierung und Skalierung der Stamina-Leiste zu gewährleisten.  
+  > Das **Training** ist die Phase vor der eigentlichen Analyse, in der die Position und Größe der Stamina-Leiste bestimmt wird.
+
+---
+
 ## Version 0.2.0-alpha.36
 
 ### **Added**
