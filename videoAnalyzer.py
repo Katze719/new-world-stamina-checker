@@ -23,7 +23,7 @@ class VideoAnalyzer:
         self.min_rect_width = 80  
         self.min_rect_height = 2   
         
-        self.lower_yellow = np.array([15, 92, 92])  
+        self.lower_yellow = np.array([15, 88, 92])  
         self.upper_yellow = np.array([45, 221, 210])  
         
         self.rectangle_counter = Counter()

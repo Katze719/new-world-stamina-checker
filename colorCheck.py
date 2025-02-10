@@ -74,7 +74,7 @@ def get_hsv_range_from_hex_list(hex_list):
     return tuple(lower_bound), tuple(upper_bound)
 
 
-hex_list = ["#9F7E1A", "#5F5528", "#5D5825", "#A78B16", "#8D6A13", "#c58f37", "#cc8438", "#bf873d", "#c68f4e", "#75934E", "#707442"]
+hex_list = ["#9F7E1A", "#5F5528", "#5D5825", "#A78B16", "#8D6A13", "#c58f37", "#cc8438", "#bf873d", "#c68f4e", "#75934E", "#707442", "#9EA86A", "#828957", "#9A9E67", "#8F995E"]
 
 t = get_hsv_range_from_hex_list(hex_list)
 
