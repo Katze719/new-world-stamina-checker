@@ -337,10 +337,20 @@ async def on_message(message: discord.Message):
                     log.info(f"Bearbeite VOD hidden for {message.author.display_name}")
                     video_path = await download_video(youtube_url)
                     video_analyzer = VideoAnalyzer(video_path)
-                    skip_first_frames = 5000
+                    skip_first_frames = 100
                     skip_first_frames = skip_first_frames if skip_first_frames > video_analyzer.frame_count else 0 
-                    training_frame_count = min(30000, video_analyzer.frame_count)
+                    training_frame_count = int(video_analyzer.frame_count * 0.4)
                     stable_rectangle = await video_analyzer.find_stable_rectangle(training_frame_count, skip_first_frames)
+
+                    if not stable_rectangle:
+                        embed.title = "❌ Training Fehlgeschlagen"
+                        embed.description = "Bitte wende dich an Pfeffermuehle"
+                        embed.color = discord.Color.red()
+                        log.warning(f"Training Fehlgeschlagen für {message.author.display_name}")
+                        await message.remove_reaction("⏳", bot.user)
+                        await message.add_reaction("❌")
+                        await message.channel.send(embed=embed)
+                        return
 
                     async def send_progress_update(processed: int, total: int):
                         log.info(f"Fortschritt: {processed} von {total} Frames analysiert.")
