@@ -73,30 +73,37 @@ def get_hsv_range_from_hex_list(hex_list):
     
     return tuple(lower_bound), tuple(upper_bound)
 
+
+hex_list = ["#9F7E1A", "#5F5528", "#5D5825", "#A78B16", "#8D6A13", "#c58f37", "#cc8438", "#bf873d", "#c68f4e"]
+
+t = get_hsv_range_from_hex_list(hex_list)
+
+print(t)
+
 # Erzeuge mehrere Verläufe:
 gradient1 = generate_hsv_gradient(
-    hue_range=(5, 30), saturation_range=(130, 255), value_range=(150, 255)
+    hue_range=(15, 28), saturation_range=(148, 221), value_range=(93, 204)
 )  # Reine Gelbtöne
 gradient2 = generate_hsv_gradient(
-    hue_range=(10, 30), saturation_range=(120, 200), value_range=(160, 200)
+    hue_range=(21, 28), saturation_range=(148, 255), value_range=(93, 200)
 )  # Mit Graustufen
 gradient3 = generate_hsv_gradient(
-    hue_range=(50, 60), saturation_range=(0, 255), value_range=(0, 255)
+    hue_range=(15, 28), saturation_range=(148, 221), value_range=(93, 255)
 )  # Mit Schwarz-Weiß-Tönen
 
-# Anzeige der Farbverläufe
+# # Anzeige der Farbverläufe
 fig, axs = plt.subplots(3, 1, figsize=(20, 10), dpi=200)
 
 axs[0].imshow(gradient1)
-axs[0].set_title("Reine Gelbtöne")
+axs[0].set_title("Pure Hue")
 axs[0].axis("off")
 
 axs[1].imshow(gradient2)
-axs[1].set_title("Gelb mit Graustufen")
+axs[1].set_title("Over Saturated")
 axs[1].axis("off")
 
 axs[2].imshow(gradient3)
-axs[2].set_title("Gelb mit Schwarz-Weiß-Verlauf")
+axs[2].set_title("Over Valued")
 axs[2].axis("off")
 
 plt.savefig("hsv_gradient.png")

@@ -20,11 +20,11 @@ class VideoAnalyzer:
         self.roi_x1_percent, self.roi_y1_percent = 0.405, 0.82  # links,  oben
         self.roi_x2_percent, self.roi_y2_percent = 0.595, 0.96  # rechts, unten
         
-        self.min_rect_width = 150  
-        self.min_rect_height = 8   
+        self.min_rect_width = 80  
+        self.min_rect_height = 2   
         
-        self.lower_yellow = np.array([15, 90, 100])  
-        self.upper_yellow = np.array([50, 255, 255])  
+        self.lower_yellow = np.array([15, 148, 93])  
+        self.upper_yellow = np.array([28, 221, 255])  
         
         self.rectangle_counter = Counter()
         self.saved_timestamps = []
@@ -111,7 +111,7 @@ class VideoAnalyzer:
             
         cap.release()
         print(f"Anzahl der Frames mit weniger als 5% Gelb: {low_yellow_frame_count}")
-        return self.saved_timestamps
+        return self.saved_timestamps if self.saved_timestamps else list()
 
     def _calculate_roi(self, frame):
         h, w = frame.shape[:2]
@@ -141,8 +141,8 @@ class VideoAnalyzer:
 
     def _get_best_rectangle(self):
         if self.rectangle_counter:
-            best_rectangle, _ = self.rectangle_counter.most_common(1)[0]
-            print(f"Stabilstes Rechteck gefunden: {best_rectangle}")
+            best_rectangle, count = self.rectangle_counter.most_common(1)[0]
+            print(f"Stabilstes Rechteck gefunden: {best_rectangle} mit häufigkeit {count}")
             return best_rectangle
         return None
 

@@ -178,9 +178,9 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
 
             
             video_analyzer = VideoAnalyzer(video_path, debug=debug_mode)
-            skip_first_frames = 5000
+            skip_first_frames = 100
             skip_first_frames = skip_first_frames if skip_first_frames > video_analyzer.frame_count else 0 
-            training_frame_count = min(30000, video_analyzer.frame_count)
+            training_frame_count = int(video_analyzer.frame_count * 0.4)
 
             embed.title = "🚀 Training läuft"
             embed.description = f"Trainiere Algorythmus mit {training_frame_count} von {video_analyzer.frame_count} Frames..."
