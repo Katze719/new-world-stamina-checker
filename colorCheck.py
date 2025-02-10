@@ -74,7 +74,7 @@ def get_hsv_range_from_hex_list(hex_list):
     return tuple(lower_bound), tuple(upper_bound)
 
 
-hex_list = ["#9F7E1A", "#5F5528", "#5D5825", "#A78B16", "#8D6A13", "#c58f37", "#cc8438", "#bf873d", "#c68f4e"]
+hex_list = ["#9F7E1A", "#5F5528", "#5D5825", "#A78B16", "#8D6A13", "#c58f37", "#cc8438", "#bf873d", "#c68f4e", "#75934E"]
 
 t = get_hsv_range_from_hex_list(hex_list)
 
@@ -82,13 +82,13 @@ print(t)
 
 # Erzeuge mehrere Verläufe:
 gradient1 = generate_hsv_gradient(
-    hue_range=(15, 28), saturation_range=(148, 221), value_range=(93, 204)
+    hue_range=(15, 45), saturation_range=(148, 221), value_range=(93, 204)
 )  # Reine Gelbtöne
 gradient2 = generate_hsv_gradient(
-    hue_range=(21, 28), saturation_range=(148, 255), value_range=(93, 200)
+    hue_range=(21, 45), saturation_range=(148, 255), value_range=(93, 200)
 )  # Mit Graustufen
 gradient3 = generate_hsv_gradient(
-    hue_range=(15, 28), saturation_range=(148, 221), value_range=(93, 255)
+    hue_range=(15, 45), saturation_range=(148, 221), value_range=(93, 255)
 )  # Mit Schwarz-Weiß-Tönen
 
 # # Anzeige der Farbverläufe
