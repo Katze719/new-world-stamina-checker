@@ -62,8 +62,7 @@ class VideoAnalyzer:
 
     async def analyze_video(self, stable_rectangle, on_progress = None):
         if not stable_rectangle:
-            print("Kein stabiles Rechteck gefunden.")
-            return
+            return []
         
         x_fixed, y_fixed, w_fixed, h_fixed = stable_rectangle
         cap = cv2.VideoCapture(self.video_path)
@@ -111,7 +110,7 @@ class VideoAnalyzer:
             
         cap.release()
         print(f"Anzahl der Frames mit weniger als 5% Gelb: {low_yellow_frame_count}")
-        return self.saved_timestamps if self.saved_timestamps else list()
+        return self.saved_timestamps
 
     def _calculate_roi(self, frame):
         h, w = frame.shape[:2]
