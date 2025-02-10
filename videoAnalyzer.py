@@ -23,8 +23,8 @@ class VideoAnalyzer:
         self.min_rect_width = 80  
         self.min_rect_height = 2   
         
-        self.lower_yellow = np.array([15, 148, 93])  
-        self.upper_yellow = np.array([45, 221, 255])  
+        self.lower_yellow = np.array([15, 100, 93])  
+        self.upper_yellow = np.array([45, 221, 210])  
         
         self.rectangle_counter = Counter()
         self.saved_timestamps = []
