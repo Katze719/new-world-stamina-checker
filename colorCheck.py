@@ -55,6 +55,23 @@ def hex_in_spectrum(hex_color, hue_range=(50, 60), saturation_range=(0, 255), va
     return (hue_range[0] <= h <= hue_range[1] and
             saturation_range[0] <= s <= saturation_range[1] and
             value_range[0] <= v <= value_range[1])
+    
+def get_hsv_range_from_hex_list(hex_list):
+    """
+    Bestimmt die unteren und oberen HSV-Grenzwerte für eine Liste von Hex-Farben.
+    """
+    hsv_values = []
+    for hex_color in hex_list:
+        hex_color = hex_color.lstrip('#')
+        r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+        hsv = cv2.cvtColor(np.uint8([[[r, g, b]]]), cv2.COLOR_RGB2HSV)[0][0]
+        hsv_values.append(hsv)
+    
+    hsv_values = np.array(hsv_values)
+    lower_bound = np.min(hsv_values, axis=0)
+    upper_bound = np.max(hsv_values, axis=0)
+    
+    return tuple(lower_bound), tuple(upper_bound)
 
 # Erzeuge mehrere Verläufe:
 gradient1 = generate_hsv_gradient(
