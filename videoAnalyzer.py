@@ -35,7 +35,7 @@ class VideoAnalyzer:
         self.fps = int(self.cap.get(cv2.CAP_PROP_FPS))
         
         self.roi_x1_percent, self.roi_y1_percent = 0.400, 0.82  # links,  oben
-        self.roi_x2_percent, self.roi_y2_percent = 0.560, 0.97  # rechts, unten
+        self.roi_x2_percent, self.roi_y2_percent = 0.600, 0.97  # rechts, unten
         
         self.min_rect_width = 80  
         self.min_rect_height = 2   
