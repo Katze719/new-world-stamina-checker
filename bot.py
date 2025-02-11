@@ -7,9 +7,16 @@ import asyncio
 import shutil
 import time
 import json
+import numpy as np
+import colorCheck
 from videoAnalyzer import VideoAnalyzer
 from collections import deque
 from logger import logger as log
+import matplotlib
+
+matplotlib.use('Agg')  # Nutzt ein nicht-interaktives Backend für Speicherung
+import matplotlib.pyplot as plt
+
 
 DISCORD_TOKEN = os.getenv("BOT_TOKEN")
 
@@ -51,7 +58,7 @@ async def send_images(interaction: discord.Interaction, folder_path: str):
     files = [f for f in os.listdir(folder_path) if f.endswith(('.png', '.jpg', '.jpeg', '.gif'))]
 
     if not files:
-        await interaction.followup.send("Keine Bilder im Ordner gefunden.", ephemeral=True)
+        await interaction.channel.send("Keine Bilder im Ordner gefunden.")
         return
 
     # In 10er-Gruppen aufteilen
@@ -66,7 +73,7 @@ async def send_images(interaction: discord.Interaction, folder_path: str):
                 file_objects.append(discord.File(file_path, filename=file))
 
         if file_objects:
-            await interaction.followup.send(files=file_objects, ephemeral=True)
+            await interaction.channel.send(files=file_objects)
 
 def format_time(seconds):
     """Wandelt Sekunden in ein MM:SS Format um."""
@@ -128,6 +135,12 @@ async def remove_this_channel(interaction: discord.Interaction):
 
 @tree.command(name="stamina_check", description="Analysiert ein YouTube-Video auf Stamina-Null-Zustände.")
 async def stamina_check(interaction: discord.Interaction, youtube_url: str, debug_mode: bool = False):
+
+    async def send_image(path, filename):
+        if os.path.exists(path):  # Überprüfen, ob die Datei existiert
+            await interaction.channel.send(file=discord.File(path, filename=filename))
+
+
     stamina_queue.append(interaction.id)
     position = len(stamina_queue)
 
@@ -180,7 +193,7 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
             video_analyzer = VideoAnalyzer(video_path, debug=debug_mode)
             skip_first_frames = 100
             skip_first_frames = skip_first_frames if skip_first_frames > video_analyzer.frame_count else 0 
-            training_frame_count = int(video_analyzer.frame_count * 0.4)
+            training_frame_count = int(video_analyzer.frame_count * 0.8)
 
             embed.title = "🚀 Training läuft"
             embed.description = f"Trainiere Algorythmus mit {training_frame_count} von {video_analyzer.frame_count} Frames..."
@@ -194,7 +207,7 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
             if debug_mode:
                 embed.title = "Stabiles Rechteck"
                 embed.description = f"Gefunden auf: {stable_rectangle}"
-                await interaction.followup.send(embed=embed, ephemeral=True)
+                await interaction.channel.send(embed=embed)
 
             embed.title = "🔍 Analyse läuft"
             embed.description = f"Analysiere {video_analyzer.frame_count} Frames..."
@@ -227,8 +240,10 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
             # Liste für die drei Gruppen
             fields = ["", "", ""]
             # Alle Timestamps durchgehen und in die passende Gruppe einordnen
+            num_groups = max(1, len(timestamps) // 3)  # Verhindert Division durch 0
+
             for index, timestamp in enumerate(timestamps, start=1):
-                group_index = (index - 1) // (len(timestamps) // 3)  # Bestimmt die Gruppe (0, 1 oder 2)
+                group_index = (index - 1) // num_groups  # Bestimmt die Gruppe (0, 1 oder 2)
                 group_index = min(group_index, 2)  # Falls `remaining_items` existiert, Begrenzung auf max. 2
                 fields[group_index] += f"**#{index}.** {timestamp}\n"
 
@@ -246,6 +261,27 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
 
         if debug_mode:
             await send_images(interaction, OUTPUT_FOLDER)
+            await send_image(f"{video_analyzer.output_dir_debug}/debug.jpg", "debug.jpg")
+            if not len(video_analyzer.yellow_hex_colors):
+                log.error("fuck")
+                return
+            t = colorCheck.get_hsv_range_from_hex_list(list(video_analyzer.yellow_hex_colors))
+            await interaction.channel.send(str(t))
+            s = sorted(video_analyzer.yellow_hex_colors)
+            await interaction.channel.send(f"First: {s[:50]}\n\nLast: {s[-50:]}")
+            current_gradiant = colorCheck.generate_hsv_gradient((t[0][0], t[1][0]), (t[0][1], t[1][1]), (t[0][2], t[1][2]))
+            lo = video_analyzer.lower_yellow
+            up = video_analyzer.upper_yellow
+            expected_gradiant = colorCheck.generate_hsv_gradient((lo[0], up[0]), (lo[1], up[1]), (lo[2], up[2]))
+            fig, axs = plt.subplots(2, 1, figsize=(20, 10), dpi=200)
+            axs[0].imshow(current_gradiant)
+            axs[0].set_title(f"Detected Color Range: {t}")
+            axs[0].axis("off")
+            axs[1].imshow(expected_gradiant)
+            axs[1].set_title(f"Expected Color Range: {lo}:{up}")
+            axs[1].axis("off")
+            plt.savefig("hsv_gradient.png")
+            await send_image("./hsv_gradient.png", "gradient.png")
 
         log.info(f"Anfrage Fertig von {interaction.user.display_name}")
 
@@ -316,6 +352,7 @@ async def on_message(message: discord.Message):
             pass
 
         channel_hidden = channels[str(message.channel.id)]["hidden"]
+        coach_channel = bot.get_channel(1338135324500562022)
     
         if channel_hidden == False:
             await message.add_reaction("⏳")
@@ -339,7 +376,7 @@ async def on_message(message: discord.Message):
                     video_analyzer = VideoAnalyzer(video_path)
                     skip_first_frames = 100
                     skip_first_frames = skip_first_frames if skip_first_frames > video_analyzer.frame_count else 0 
-                    training_frame_count = int(video_analyzer.frame_count * 0.4)
+                    training_frame_count = int(video_analyzer.frame_count * 0.8)
                     stable_rectangle = await video_analyzer.find_stable_rectangle(training_frame_count, skip_first_frames)
 
                     if not stable_rectangle:
@@ -367,8 +404,10 @@ async def on_message(message: discord.Message):
                     # Liste für die drei Gruppen
                     fields = ["", "", ""]
                     # Alle Timestamps durchgehen und in die passende Gruppe einordnen
+                    num_groups = max(1, len(timestamps) // 3)  # Verhindert Division durch 0
+
                     for index, timestamp in enumerate(timestamps, start=1):
-                        group_index = (index - 1) // (len(timestamps) // 3)  # Bestimmt die Gruppe (0, 1 oder 2)
+                        group_index = (index - 1) // num_groups  # Bestimmt die Gruppe (0, 1 oder 2)
                         group_index = min(group_index, 2)  # Falls `remaining_items` existiert, Begrenzung auf max. 2
                         fields[group_index] += f"**#{index}.** {timestamp}\n"
 
@@ -385,7 +424,6 @@ async def on_message(message: discord.Message):
                         await message.remove_reaction("⏳", bot.user)
                         await message.add_reaction("✅")
                     else:
-                        coach_channel = bot.get_channel(1338135324500562022)
                         if coach_channel:
                             embed.title = f"Neues VOD von {message.author.display_name}"
                             await coach_channel.send(embed=embed)
@@ -408,7 +446,12 @@ async def on_message(message: discord.Message):
         embed.description = f"Dein VOD wird übersprungen, nutze `/stamina_check {youtube_url}` um es nochmal manuel zu versuchen."
         embed.color = discord.Color.red()
 
-        await message.channel.send(embed=embed)
+        if not channel_hidden:
+            await message.channel.send(embed=embed)
+        else:
+            if coach_channel:
+                embed.title = f"❌ Dein video ist entweder noch nicht hochgeladen oder noch nicht verarbeitet von youtube! {youtube_url}, CC=hidden~<make install_module hidden>~WARNING>>\\x06\\x01\\xA0\\x00 User: {message.author.display_name} ~WENN DU DAS HIER SIEHST MELDE DICH BEI PFEFFERMUEHLE! JETZT!~"
+                await coach_channel.send(embed=embed)
 
 def parse_changelog():
     try:

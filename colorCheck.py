@@ -74,37 +74,30 @@ def get_hsv_range_from_hex_list(hex_list):
     return tuple(lower_bound), tuple(upper_bound)
 
 
-hex_list = ["#9F7E1A", "#5F5528", "#5D5825", "#A78B16", "#8D6A13", "#c58f37", "#cc8438", "#bf873d", "#c68f4e", "#75934E", "#707442", "#9EA86A", "#828957", "#9A9E67", "#8F995E"]
+if __name__ == "__main__":
 
-t = get_hsv_range_from_hex_list(hex_list)
+    hex_list = ["#9F7E1A", "#5F5528", "#5D5825", "#A78B16", "#8D6A13", "#c58f37", "#cc8438", "#bf873d", "#c68f4e", "#75934E", "#707442", "#9EA86A", "#828957", "#9A9E67", "#8F995E"]
 
-print(t)
+    t = get_hsv_range_from_hex_list(hex_list)
 
-# Erzeuge mehrere Verläufe:
-gradient1 = generate_hsv_gradient(
-    hue_range=(15, 45), saturation_range=(100, 221), value_range=(93, 204)
-)  # Reine Gelbtöne
-gradient2 = generate_hsv_gradient(
-    hue_range=(21, 45), saturation_range=(148, 255), value_range=(93, 200)
-)  # Mit Graustufen
-gradient3 = generate_hsv_gradient(
-    hue_range=(15, 45), saturation_range=(148, 221), value_range=(93, 255)
-)  # Mit Schwarz-Weiß-Tönen
+    print(t)
 
-# # Anzeige der Farbverläufe
-fig, axs = plt.subplots(3, 1, figsize=(20, 10), dpi=200)
+    gradiant = generate_hsv_gradient((t[0][0], t[1][0]), (t[0][1], t[1][1]), (t[0][2], t[1][2]))
+    # Erzeuge mehrere Verläufe:
+    # gradient1 = generate_hsv_gradient(
+    #     hue_range=(15, 45), saturation_range=(89, 221), value_range=(93, 204)
+    # )  # Reine Gelbtöne
 
-axs[0].imshow(gradient1)
-axs[0].set_title("Pure Hue")
-axs[0].axis("off")
+    # # Anzeige der Farbverläufe
+    fig, axs = plt.subplots(1, 1, figsize=(20, 10), dpi=200)
 
-axs[1].imshow(gradient2)
-axs[1].set_title("Over Saturated")
-axs[1].axis("off")
+    axs.imshow(gradiant)
+    axs.set_title("Pure Hue")
+    axs.axis("off")
 
-axs[2].imshow(gradient3)
-axs[2].set_title("Over Valued")
-axs[2].axis("off")
+    # axs[1].imshow(gradient1)
+    # axs[1].set_title("Over Saturated")
+    # axs[1].axis("off")
 
-plt.savefig("hsv_gradient.png")
-plt.close()
+    plt.savefig("hsv_gradient.png")
+    plt.close()
