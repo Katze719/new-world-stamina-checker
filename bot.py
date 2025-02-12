@@ -13,12 +13,14 @@ from videoAnalyzer import VideoAnalyzer
 from collections import deque
 from logger import logger as log
 import matplotlib
+from google import genai
 
 matplotlib.use('Agg')  # Nutzt ein nicht-interaktives Backend für Speicherung
 import matplotlib.pyplot as plt
 
 
 DISCORD_TOKEN = os.getenv("BOT_TOKEN")
+GOOGLE_GEMINI_TOKEN = os.getenv("GOOGLE_GEMINI_TOKEN")
 
 DOWNLOAD_FOLDER = "./downloads/"
 OUTPUT_FOLDER = "./output/"
@@ -227,7 +229,7 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
             timestamps = await video_analyzer.analyze_video(stable_rectangle, send_progress_update)
             time_end_analyze = time.time()
 
-            message = get_feedback_message(len(timestamps))
+            message = await get_feedback_message(len(timestamps))
 
             embed.title = f"✅ Analyse abgeschlossen! für {youtube_url}"
 
@@ -235,7 +237,7 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
                 t_info = f"**Verbrauche Zeit:** {format_time(time_end_analyze - time_start_download)}\n- Download: {format_time(time_end_download - time_start_download)}\n- Training: {format_time(time_end_training - time_start_training)}\n- Analyse: {format_time(time_end_analyze - time_start_analyze)}\n\n"
             else:
                 t_info = ""
-            embed.description = f"{t_info}⏱ **An Folgenden Stellen bist du Out Of Stamina:**\n{message}\n"
+            embed.description = f"{t_info}⏱ **An Folgenden Stellen bist du Out Of Stamina:**\n"
 
             # Liste für die drei Gruppen
             fields = ["", "", ""]
@@ -250,6 +252,8 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
             # Felder zum Embed hinzufügen
             for field_content in fields:
                 embed.add_field(name="", value=field_content, inline=True)
+
+            embed.add_field(name="", value=message)
 
             embed.color = discord.Color.green()
             await edit_msg(interaction, msg.id, embed)
@@ -294,28 +298,12 @@ async def get_queue_length(interaction: discord.Interaction):
     )
     await interaction.response.send_message(embed=embed)
 
-def get_feedback_message(stamina_events):
-    """Gibt eine spezifische Nachricht basierend auf der Anzahl der Out-of-Stamina-Ereignisse zurück."""
-    if 0 == stamina_events:
-        return "Hör auf Tank zu Spielen"
-    elif 1 <= stamina_events <= 3:
-        return "🌟 Dein Stamina-Management ist **GÖTTLICH**! Weiter so! 💪🔥 Du bist ein **MEISTER** deiner Klasse!!! 🏆✨"
-    elif 4 <= stamina_events <= 8:
-        return "⚡ Dein Stamina-Management ist **grandios**! 🔥 Weiter so! Bald kann man dich **Meister deiner Klasse** nennen! 🏅👏"
-    elif 9 <= stamina_events <= 20:
-        return "💪 Alles unter **20 Mal „out of Stamina“** in einem Krieg kann man immer noch als **richtig, richtig STARK** bezeichnen! 🏆 Weiter so!!! 🚀"
-    elif 21 <= stamina_events <= 30:
-        return "👍 **Sehr gut!** Du bist auf dem richtigen WEG! 🛤 Der nächste Meilenstein ist, nicht mehr als **15 Mal** in einem Krieg „out of Stamina“ zu sein! DU schaffst das!!! 💥🔥"
-    elif 31 <= stamina_events <= 40:
-        return "🤔 **Okay, damit kann man arbeiten.** 🛠 Nächstes Ziel ist es, **NICHT mehr als 20 Mal** „out of Stamina“ zu dodgen! 💪 Das packst DU!!! 🚀"
-    elif 41 <= stamina_events <= 50:
-        return "😬 **Das geht sicherlich noch ein wenig besser.** 😕 Versuch, dein Stamina-Management im Auge zu behalten! 👀"
-    elif 51 <= stamina_events <= 100:
-        return "📉 **Du hast noch eine Menge zu lernen …** 🏋️♂️ Wende dich an deinen Coach für nützliche Tipps zu deinem Stamina-Management! 🎯 Ziel: **Nicht mehr als 50 Mal einen grauen BALKEN** zu haben. ⚠️ Gegen starke Gegner kann man dich so nicht wirklich effektiv einsetzen. 😔 Aber das wird besser, **vertrau mir!** 🙂💪"
-    elif 100 <= stamina_events <= 200:
-        return "💀 **Uff … na gut … hmm … was soll ich sagen?** 🤯 Einigen wir uns einfach darauf, dass **ICH verbuggt bin!** 🖥️💥\n\n💾 **Liebe Grüße … der New World VOD Stamina Checker … ERROR … ERROR … ERROR …**\n\n🚨 **Ne im ERNST jetzt!** 🛑\nHör auf, deine **SHIFT-TASTE** zu misshandeln!!! ⌨️⚠️\n\n😅 **Bleib bitte am Ball, aller Anfang ist schwer!** 🏋️♂️✨"
-    else:
-        return "🤷 **Ich habe keine passende Nachricht für diese Anzahl an Events.** Vielleicht ein neuer Rekord? 🏆🤣"
+async def get_feedback_message(stamina_events):
+    client = genai.Client(api_key=GOOGLE_GEMINI_TOKEN)
+    c = f"""
+Du bist ein motivierender und humorvoller Coach für das Spiel 'New World: Aeternum' und bewertest das Stamina-Management eines Spielers auf spielerische Weise. Weniger Out-of-Stamina-Momente sind besser. Gib genau eine kurze, aber ausdrucksstarke Bewertung aus – gerne mit Humor, Memes und Emoji-Verwendung. Verwende abwechslungsreiche Formulierungen und mache Anspielungen auf das Spiel oder typische Spieler-Fehler. Die Person war {stamina_events} Mal out of stamina im letzten Krieg.
+"""
+    return (await client.aio.models.generate_content(model="gemini-2.0-flash", contents=c)).text
 
 
 @bot.event
@@ -394,11 +382,11 @@ async def on_message(message: discord.Message):
 
                     timestamps = await video_analyzer.analyze_video(stable_rectangle, send_progress_update)
 
-                    mot_message = get_feedback_message(len(timestamps))
+                    mot_message = await get_feedback_message(len(timestamps))
 
                     embed = discord.Embed()
                     embed.title = f"✅ Analyse abgeschlossen! für {youtube_url}"
-                    embed.description = f"⏱ **An Folgenden Stellen bist du Out Of Stamina:**\n{mot_message}\n"
+                    embed.description = f"⏱ **An Folgenden Stellen bist du Out Of Stamina:**\n"
                     embed.color = discord.Color.green()
 
                     # Liste für die drei Gruppen
@@ -418,6 +406,8 @@ async def on_message(message: discord.Message):
                         else:
                             embed.add_field(name="Keine Ausgabe", value="Du bist zu oft out of stamina, (message ist zu groß zum senden!)")
                             embed.color = discord.Color.red()
+
+                    embed.add_field(name="", value=mot_message)
 
                     if channel_hidden == False:
                         await message.channel.send(embed=embed)
