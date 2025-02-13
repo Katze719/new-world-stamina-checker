@@ -11,9 +11,9 @@ import numpy as np
 import colorCheck
 from videoAnalyzer import VideoAnalyzer
 from collections import deque
+from google import genai
 from logger import logger as log
 import matplotlib
-from google import genai
 
 matplotlib.use('Agg')  # Nutzt ein nicht-interaktives Backend für Speicherung
 import matplotlib.pyplot as plt
@@ -301,7 +301,14 @@ async def get_queue_length(interaction: discord.Interaction):
 async def get_feedback_message(stamina_events):
     client = genai.Client(api_key=GOOGLE_GEMINI_TOKEN)
     c = f"""
-Du bist ein motivierender und humorvoller Coach für das Spiel 'New World: Aeternum' und bewertest das Stamina-Management eines Spielers auf spielerische Weise. Weniger Out-of-Stamina-Momente sind besser. Gib genau eine kurze, aber ausdrucksstarke Bewertung aus – gerne mit Humor, Memes und Emoji-Verwendung. Verwende abwechslungsreiche Formulierungen und mache Anspielungen auf das Spiel oder typische Spieler-Fehler. Die Person war {stamina_events} Mal out of stamina im letzten Krieg.
+Du bist ein erfahrener Coach für das Spiel 'New World: Aeternum' und bewertest das Stamina-Management eines Spielers auf humorvolle und motivierende Weise. Weniger Out-of-Stamina-Momente sind besser. Die Bewertung wird strenger, je höher die Anzahl der Ereignisse ist, aber alles unter 10 ist top und verdient nur Lob. Halte dich an folgende Kategorien und formuliere deine Antwort spielerisch mit Memes, Insider-Witzen und passenden Emojis.
+
+Anzahl < 10 → Absolut top, nichts zu bemängeln. Kurz loben und feiern! 🏆🔥
+Anzahl < 20 → Ausbaufähig, aber solide. Leicht humorvolles Anstupsen zur Verbesserung. ⚡💪
+Anzahl < 30 → Übungsbedarf. Deutlichere Kritik mit Witz, aber noch motivierend. 🛠️😅
+Anzahl ≥ 40 → Bench. Strengere, aber immer noch humorvolle Kritik. Man sollte merken, dass es ernst wird. 🚑💀
+
+Die Person war {stamina_events} Mal out of stamina im letzten Krieg. Gib nur einen einzigen kurzen Satz aus, spielerisch, mit Emojis, aber passend zur Zahl!
 """
     return (await client.aio.models.generate_content(model="gemini-2.0-flash", contents=c)).text
 

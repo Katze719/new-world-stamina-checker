@@ -77,7 +77,7 @@ class VideoAnalyzer:
                 if x is not None and x < self.min_x_threshold and x > self.max_x_threshold:  # Überprüfung, ob das Rechteck links von der Mitte liegt
                     detected_rect = frame[y:y+h, x:x+w]
                     yellow_ratio = self._calculate_yellow_ratio(detected_rect, w, h)
-                    if yellow_ratio >= 0.45:
+                    if yellow_ratio >= 0.25:
                         self.rectangle_counter[(x, y, w, h)] += 1
                         if self.debug:
                             self._add_to_yellow_hex_list(detected_rect, w, h)
@@ -110,7 +110,7 @@ class VideoAnalyzer:
             
             for contour in contours:
                 x, y, w, h = self._validate_rectangle(contour, x1, y1)
-                if x is not None and x < self.min_x_threshold and x > self.max_x_threshold:  # Überprüfung, ob das Rechteck links von der Mitte liegt
+                if x is not None and x < self.min_x_threshold:  # Überprüfung, ob das Rechteck links von der Mitte liegt
                     deviation = abs(x - x_fixed) + abs(y - y_fixed) + abs(w - w_fixed) + abs(h - h_fixed)
                     if deviation <= 60:
                         stable_rect = frame[y_fixed:y_fixed + h_fixed, x_fixed:x_fixed + w_fixed]
@@ -180,9 +180,6 @@ class VideoAnalyzer:
         
         # Berechne das Gelb-Verhältnis
         yellow_ratio = yellow_pixels / (w * h) if w * h > 0 else 0
-
-        if yellow_ratio < 0.80:
-            return
 
         # Falls keine Gelb-Pixel gefunden wurden, direkt zurückkehren
         if yellow_pixels == 0:
