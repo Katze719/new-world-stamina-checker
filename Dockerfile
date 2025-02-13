@@ -32,4 +32,4 @@ RUN poetry config virtualenvs.create false \
 COPY . /app
 
 # Starte das Skript `bot.py`
-CMD ["python", "bot.py"]
+CMD ["python", "./src/bot.py"]
