@@ -6,7 +6,7 @@ authors = [{ name = "Katze719" }]
 license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["yt-dlp (>=2025.1.26,<2026.0.0)", "opencv-python (>=4.11.0.86,<5.0.0.0)", "pytesseract (>=0.3.13,<0.4.0)", "numpy (>=2.2.2,<3.0.0)", "discord (>=2.3.2,<3.0.0)", "matplotlib (>=3.10.0,<4.0.0)", "google-genai (>=1.0.0,<2.0.0)"]
+dependencies = ["yt-dlp (>=2025.1.26,<2026.0.0)", "opencv-python (>=4.11.0.86,<5.0.0.0)", "pytesseract (>=0.3.13,<0.4.0)", "numpy (>=2.2.2,<3.0.0)", "discord (>=2.3.2,<3.0.0)", "matplotlib (>=3.10.0,<4.0.0)", "google-genai (>=1.0.0,<2.0.0)", "pytest (>=8.3.4,<9.0.0)"]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
@@ -14,3 +14,6 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 package-mode = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
