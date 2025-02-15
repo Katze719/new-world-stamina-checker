@@ -173,3 +173,4 @@ cython_debug/
 debug/
 output/
 vod_channels.json
+video_cache.json
