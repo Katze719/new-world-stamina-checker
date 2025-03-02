@@ -555,12 +555,6 @@ async def set_role(interaction: discord.Interaction, role: discord.Role, icon: s
     await settings_manager.save(role_name_update_settings_cache)
     await interaction.response.send_message(f"Icon für Rolle **{role.name}** wurde gespeichert.", ephemeral=True)
     
-    # Wende die neuen Einstellungen auf alle Mitglieder an
-    guild = interaction.guild
-    if guild:
-        for member in guild.members:
-            await update_member_nickname(member)
-
 @tree.command(name="set_pattern", description="Setze das globale Namensmuster")
 @app_commands.describe(
     pattern="Das Namensmuster, z.B. '[{icons}] {name}' (Platzhalter: {icons} für kombinierte Icons, {name} für den ursprünglichen Namen)"
@@ -576,12 +570,6 @@ async def set_pattern(interaction: discord.Interaction, pattern: str):
     await settings_manager.save(role_name_update_settings_cache)
     await interaction.response.send_message(f"Globales Namensmuster wurde auf `{pattern}` gesetzt.", ephemeral=True)
     
-    # Wende das neue Pattern auf alle Mitglieder an
-    guild = interaction.guild
-    if guild:
-        for member in guild.members:
-            await update_member_nickname(member)
-
 @set_pattern.autocomplete("pattern")
 async def pattern_autocomplete(interaction: discord.Interaction, current: str):
     """
@@ -594,5 +582,17 @@ async def pattern_autocomplete(interaction: discord.Interaction, current: str):
         if current.lower() in p.lower():
             choices.append(app_commands.Choice(name=p, value=p))
     return choices
+
+@tree.command(name="update_all_icons_with_roles", description="Updatet alle Icons bei jedem Nutzer")
+@app_commands.checks.has_permissions(administrator=True)
+async def update_all_icons_with_roles(interaction: discord.Interaction):
+    # Wende das neue Pattern auf alle Mitglieder an
+    await interaction.response.send_message("Update alle Nutzer ...", ephemeral=True)
+    guild = interaction.guild
+    if guild:
+        for member in guild.members:
+            await update_member_nickname(member)
+
+    await interaction.edit_original_response(content="Icons wurden Aktualisiert!")
 
 bot.run(DISCORD_TOKEN)
