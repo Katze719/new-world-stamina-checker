@@ -14,6 +14,7 @@ from collections import deque
 from google import genai
 from logger import logger as log
 import matplotlib
+import jsonFileManager
 
 matplotlib.use('Agg')  # Nutzt ein nicht-interaktives Backend für Speicherung
 import matplotlib.pyplot as plt
@@ -29,11 +30,32 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True
+
 bot = discord.Client(intents=intents)
 tree = app_commands.CommandTree(bot)
 
 stamina_lock = asyncio.Lock()
 stamina_queue = deque()
+
+def ensure_hidden_attribute(data):
+    for channel_id, info in data.items():
+        if "hidden" not in info:
+            info["hidden"] = False
+    return data
+
+# Datei, in der die Kanäle gespeichert werden
+VOD_CHANNELS_FILE_PATH = "./vod_channels.json"
+ROLE_NAME_UPDATE_SETTINGS_PATH = "./role_name_settings.json"
+
+vod_channel_manager = jsonFileManager.JsonFileManager(VOD_CHANNELS_FILE_PATH, ensure_hidden_attribute)
+settings_manager = jsonFileManager.JsonFileManager(ROLE_NAME_UPDATE_SETTINGS_PATH)
+
+role_name_update_settings_cache = {}
+
+default_pattern = "{name} [{icons}]"
+if "global_pattern" not in role_name_update_settings_cache:
+    role_name_update_settings_cache["global_pattern"] = default_pattern
 
 async def edit_msg(interaction: discord.Interaction, msg_id: int, embed: discord.Embed):
     try:
@@ -85,30 +107,9 @@ def format_time(seconds):
     seconds = int(seconds % 60)
     return f"{minutes:02}:{seconds:02}"
 
-# Datei, in der die Kanäle gespeichert werden
-VOD_CHANNELS_FILE_PATH = "./vod_channels.json"
-vod_channels_file_lock = asyncio.Lock()
-
-async def load_channels():
-    async with vod_channels_file_lock:
-        if not os.path.exists(VOD_CHANNELS_FILE_PATH):
-            return {}
-        with open(VOD_CHANNELS_FILE_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        # Sicherstellen, dass jeder Channel das `hidden`-Attribut hat
-        for channel_id, info in data.items():
-            if "hidden" not in info:
-                info["hidden"] = False
-        return data
-
-async def save_channels(channels):
-    # async with vod_channels_file_lock:
-        with open(VOD_CHANNELS_FILE_PATH, "w", encoding="utf-8") as f:
-            json.dump(channels, f, indent=4)
-
 @tree.command(name="add_this_channel", description="Füge diesen Channel zur VOD-Prüfliste hinzu")
 async def add_this_channel(interaction: discord.Interaction, hidden: bool = False):
-    channels = await load_channels()
+    channels = await vod_channel_manager.load()
     channel_id = str(interaction.channel.id)
 
     if channel_id in channels:
@@ -116,7 +117,7 @@ async def add_this_channel(interaction: discord.Interaction, hidden: bool = Fals
         return
 
     channels[channel_id] = {"hidden": hidden}
-    await save_channels(channels)
+    await vod_channel_manager.save(channels)
     await interaction.response.send_message(
         f"Channel wurde erfolgreich zur VOD-Prüfliste hinzugefügt! (Hidden: {hidden})",
         ephemeral=True
@@ -124,7 +125,7 @@ async def add_this_channel(interaction: discord.Interaction, hidden: bool = Fals
 
 @tree.command(name="remove_this_channel", description="Entferne diesen Channel von der VOD-Prüfliste")
 async def remove_this_channel(interaction: discord.Interaction):
-    channels = await load_channels()
+    channels = await vod_channel_manager.load()
     channel_id = str(interaction.channel.id)
 
     if channel_id not in channels:
@@ -132,7 +133,7 @@ async def remove_this_channel(interaction: discord.Interaction):
         return
 
     del channels[channel_id]
-    await save_channels(channels)
+    await vod_channel_manager.save(channels)
     await interaction.response.send_message("Channel wurde erfolgreich von der VOD-Prüfliste entfernt!", ephemeral=True)
 
 @tree.command(name="stamina_check", description="Analysiert ein YouTube-Video auf Stamina-Null-Zustände.")
@@ -315,8 +316,14 @@ Die Person war {stamina_events} Mal out of stamina im letzten Krieg. Gib nur ein
 
 @bot.event
 async def on_ready():
-    await tree.sync()
-    log.info(f"✅ {bot.user} ist online und bereit!")
+    global role_name_update_settings_cache
+    role_name_update_settings_cache = await settings_manager.load()
+    print(f"Bot ist eingeloggt als {bot.user}")
+    try:
+        synced = await tree.sync()
+        print(f"{len(synced)} Slash Commands synchronisiert.")
+    except Exception as e:
+        print(e)
 
 # YouTube-Link-Erkennung
 YOUTUBE_REGEX = re.compile(r"(https?://)?(www\.)?(youtube\.com|youtu\.?be)/.+")
@@ -326,7 +333,7 @@ async def on_message(message: discord.Message):
     if message.author.bot:
         return
     
-    channels = await load_channels()
+    channels = await vod_channel_manager.load()
     if str(message.channel.id) not in channels:
         return
     
@@ -472,5 +479,120 @@ async def changelog(ctx: discord.Interaction):
     if len(latest_changelog) > 2048:
         latest_changelog = latest_changelog[:2045] + "..."
     await ctx.response.send_message(embed=embed)
+
+def pattern_to_regex(pattern: str) -> re.Pattern:
+    """
+    Erzeugt aus dem Pattern einen Regex.
+    Ersetzt {name} und {icons} durch nicht-gierige Capturing-Gruppen.
+    """
+    escaped = re.escape(pattern)
+    escaped = escaped.replace(re.escape("{name}"), r"(?P<name>.*?)")
+    escaped = escaped.replace(re.escape("{icons}"), r"(?P<icons>.*?)")
+    return re.compile("^" + escaped + "$")
+
+async def update_member_nickname(member: discord.Member):
+    """
+    Aktualisiert den Nickname eines Members anhand der globalen Einstellungen.
+    Es werden alle in role_settings gespeicherten Icons kombiniert
+    und das globale Pattern angewandt.
+    """
+    role_settings = role_name_update_settings_cache.get("role_settings", {})
+    icons = ""
+    for role in member.roles:
+        if str(role.id) in role_settings:
+            icon = role_settings[str(role.id)].get("icon", "")
+            icons += icon
+
+    pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
+    regex = pattern_to_regex(pattern)
+    match = regex.match(member.display_name)
+    if match:
+        base_name = match.group("name").strip()
+    else:
+        base_name = member.display_name
+
+    expected_nick = pattern.format(icons=icons, name=base_name)
+    if len(expected_nick) > 32:
+        # Berechne, wie viele Zeichen für {name} übrig bleiben, wenn {icons} unverändert bleiben
+        fixed_part = pattern.format(icons=icons, name="")  # Platzhalter für den variablen Teil wird hier durch "" ersetzt
+        allowed_name_length = 32 - len(fixed_part)
+        if allowed_name_length < 0:
+            allowed_name_length = 0  # Sicherheitshalber
+        base_name = base_name[:allowed_name_length]
+        expected_nick = pattern.format(icons=icons, name=base_name)
+
+    if member.display_name != expected_nick:
+        try:
+            print(f"Nickname von {member.display_name} geändert zu {expected_nick}")
+            await member.edit(nick=expected_nick)
+        except discord.Forbidden:
+            print(f"Konnte Nickname von {member.display_name} nicht ändern - fehlende Berechtigungen.")
+        except discord.NotFound:
+            print(f"Member {member} wurde nicht gefunden (vermutlich gekickt).")
+
+@bot.event
+async def on_member_update(before, after: discord.Member):
+    """
+    Wird aufgerufen, wenn sich ein Member ändert und wendet die globalen Regeln an.
+    """
+    await update_member_nickname(after)
+
+@tree.command(name="set_role", description="Setze Icon für eine Rolle")
+@app_commands.describe(
+    role="Wähle die Rolle aus, für die das Icon gesetzt werden soll",
+    icon="Das Icon, das vor dem Benutzernamen angezeigt werden soll"
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def set_role(interaction: discord.Interaction, role: discord.Role, icon: str):
+    """
+    Administratoren können pro Rolle ein Icon festlegen.
+    Das Icon wird später mit dem globalen Pattern kombiniert.
+    """
+    global role_name_update_settings_cache
+    if "role_settings" not in role_name_update_settings_cache:
+        role_name_update_settings_cache["role_settings"] = {}
+    role_name_update_settings_cache["role_settings"][str(role.id)] = {"icon": icon}
+    await settings_manager.save(role_name_update_settings_cache)
+    await interaction.response.send_message(f"Icon für Rolle **{role.name}** wurde gespeichert.", ephemeral=True)
+    
+    # Wende die neuen Einstellungen auf alle Mitglieder an
+    guild = interaction.guild
+    if guild:
+        for member in guild.members:
+            await update_member_nickname(member)
+
+@tree.command(name="set_pattern", description="Setze das globale Namensmuster")
+@app_commands.describe(
+    pattern="Das Namensmuster, z.B. '[{icons}] {name}' (Platzhalter: {icons} für kombinierte Icons, {name} für den ursprünglichen Namen)"
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def set_pattern(interaction: discord.Interaction, pattern: str):
+    """
+    Administratoren können das globale Namensmuster festlegen.
+    Dieses Muster wird für alle Mitglieder verwendet, die Icons zugewiesen haben.
+    """
+    global role_name_update_settings_cache
+    role_name_update_settings_cache["global_pattern"] = pattern
+    await settings_manager.save(role_name_update_settings_cache)
+    await interaction.response.send_message(f"Globales Namensmuster wurde auf `{pattern}` gesetzt.", ephemeral=True)
+    
+    # Wende das neue Pattern auf alle Mitglieder an
+    guild = interaction.guild
+    if guild:
+        for member in guild.members:
+            await update_member_nickname(member)
+
+@set_pattern.autocomplete("pattern")
+async def pattern_autocomplete(interaction: discord.Interaction, current: str):
+    """
+    Gibt eine Auswahl an bereits genutzten Patterns zurück.
+    (Hier kannst du z. B. eine statische Liste oder eine aus der Datenbank geladene Liste verwenden.)
+    """
+    used_patterns = ["{name} [{icons}]", "[{icons}] {name}"]
+    choices = []
+    for p in used_patterns:
+        if current.lower() in p.lower():
+            choices.append(app_commands.Choice(name=p, value=p))
+    return choices
 
 bot.run(DISCORD_TOKEN)
