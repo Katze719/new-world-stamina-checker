@@ -318,12 +318,12 @@ Die Person war {stamina_events} Mal out of stamina im letzten Krieg. Gib nur ein
 async def on_ready():
     global role_name_update_settings_cache
     role_name_update_settings_cache = await settings_manager.load()
-    print(f"Bot ist eingeloggt als {bot.user}")
+    log.info(f"Bot ist eingeloggt als {bot.user}")
     try:
         synced = await tree.sync()
-        print(f"{len(synced)} Slash Commands synchronisiert.")
+        log.info(f"{len(synced)} Slash Commands synchronisiert.")
     except Exception as e:
-        print(e)
+        log.info(e)
 
 # YouTube-Link-Erkennung
 YOUTUBE_REGEX = re.compile(r"(https?://)?(www\.)?(youtube\.com|youtu\.?be)/.+")
@@ -523,12 +523,12 @@ async def update_member_nickname(member: discord.Member):
 
     if member.display_name != expected_nick:
         try:
-            print(f"Nickname von {member.display_name} geändert zu {expected_nick}")
+            log.info(f"Nickname von {member.display_name} geändert zu {expected_nick}")
             await member.edit(nick=expected_nick)
         except discord.Forbidden:
-            print(f"Konnte Nickname von {member.display_name} nicht ändern - fehlende Berechtigungen.")
+            log.error(f"Konnte Nickname von {member.display_name} nicht ändern - fehlende Berechtigungen.")
         except discord.NotFound:
-            print(f"Member {member} wurde nicht gefunden (vermutlich gekickt).")
+            log.error(f"Member {member} wurde nicht gefunden (vermutlich gekickt).")
 
 @bot.event
 async def on_member_update(before, after: discord.Member):
@@ -555,6 +555,28 @@ async def set_role(interaction: discord.Interaction, role: discord.Role, icon: s
     await settings_manager.save(role_name_update_settings_cache)
     await interaction.response.send_message(f"Icon für Rolle **{role.name}** wurde gespeichert.", ephemeral=True)
     
+@tree.command(name="clear_role", description="Entferne das Icon für eine Rolle")
+@app_commands.describe(
+    role="Wähle die Rolle aus, für die das Icon entfernt werden soll"
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def clear_role(interaction: discord.Interaction, role: discord.Role):
+    """
+    Administratoren können das Icon für eine Rolle entfernen.
+    Dadurch wird das Icon nicht mehr in den globalen Nickname eingefügt.
+    """
+    global role_name_update_settings_cache
+    if "role_settings" not in role_name_update_settings_cache:
+        role_name_update_settings_cache["role_settings"] = {}
+    
+    if str(role.id) in role_name_update_settings_cache["role_settings"]:
+        del role_name_update_settings_cache["role_settings"][str(role.id)]
+        await settings_manager.save(role_name_update_settings_cache)
+        await interaction.response.send_message(f"Icon für Rolle **{role.name}** wurde entfernt.", ephemeral=True)
+    else:
+        await interaction.response.send_message(f"Für Rolle **{role.name}** war kein Icon gesetzt.", ephemeral=True)
+    
+
 @tree.command(name="set_pattern", description="Setze das globale Namensmuster")
 @app_commands.describe(
     pattern="Das Namensmuster, z.B. '[{icons}] {name}' (Platzhalter: {icons} für kombinierte Icons, {name} für den ursprünglichen Namen)"
