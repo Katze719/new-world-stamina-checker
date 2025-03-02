@@ -139,6 +139,10 @@ async def remove_this_channel(interaction: discord.Interaction):
 @tree.command(name="stamina_check", description="Analysiert ein YouTube-Video auf Stamina-Null-Zustände.")
 async def stamina_check(interaction: discord.Interaction, youtube_url: str, debug_mode: bool = False):
 
+    e = discord.Embed(title="Deaktiviert")
+    await interaction.response.send_message(embed=e)
+    return
+
     async def send_image(path, filename):
         if os.path.exists(path):  # Überprüfen, ob die Datei existiert
             await interaction.channel.send(file=discord.File(path, filename=filename))
@@ -352,6 +356,8 @@ async def on_message(message: discord.Message):
         if channel:
             await channel.send(embed=embed)
             pass
+
+        return
 
         channel_hidden = channels[str(message.channel.id)]["hidden"]
         coach_channel = bot.get_channel(1338135324500562022)
