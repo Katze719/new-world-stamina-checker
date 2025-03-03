@@ -557,46 +557,6 @@ async def on_member_update(before, after: discord.Member):
     """
     await update_member_nickname(after)
 
-@tree.command(name="set_role", description="Setze Icon für eine Rolle")
-@app_commands.describe(
-    role="Wähle die Rolle aus, für die das Icon gesetzt werden soll",
-    icon="Das Icon, das vor dem Benutzernamen angezeigt werden soll"
-)
-@app_commands.checks.has_permissions(administrator=True)
-async def set_role(interaction: discord.Interaction, role: discord.Role, icon: str):
-    """
-    Administratoren können pro Rolle ein Icon festlegen.
-    Das Icon wird später mit dem globalen Pattern kombiniert.
-    """
-    global role_name_update_settings_cache
-    if "role_settings" not in role_name_update_settings_cache:
-        role_name_update_settings_cache["role_settings"] = {}
-    role_name_update_settings_cache["role_settings"][str(role.id)] = {"icon": icon}
-    await settings_manager.save(role_name_update_settings_cache)
-    await interaction.response.send_message(f"Icon für Rolle **{role.name}** wurde gespeichert.", ephemeral=True)
-    
-@tree.command(name="clear_role", description="Entferne das Icon für eine Rolle")
-@app_commands.describe(
-    role="Wähle die Rolle aus, für die das Icon entfernt werden soll"
-)
-@app_commands.checks.has_permissions(administrator=True)
-async def clear_role(interaction: discord.Interaction, role: discord.Role):
-    """
-    Administratoren können das Icon für eine Rolle entfernen.
-    Dadurch wird das Icon nicht mehr in den globalen Nickname eingefügt.
-    """
-    global role_name_update_settings_cache
-    if "role_settings" not in role_name_update_settings_cache:
-        role_name_update_settings_cache["role_settings"] = {}
-    
-    if str(role.id) in role_name_update_settings_cache["role_settings"]:
-        del role_name_update_settings_cache["role_settings"][str(role.id)]
-        await settings_manager.save(role_name_update_settings_cache)
-        await interaction.response.send_message(f"Icon für Rolle **{role.name}** wurde entfernt.", ephemeral=True)
-    else:
-        await interaction.response.send_message(f"Für Rolle **{role.name}** war kein Icon gesetzt.", ephemeral=True)
-    
-
 @tree.command(name="set_role", description="Setze Icon und/oder Priorität für eine Rolle")
 @app_commands.describe(
     role="Wähle die Rolle aus, für die die Einstellungen gesetzt werden sollen",
@@ -625,6 +585,43 @@ async def set_role(interaction: discord.Interaction, role: discord.Role, icon: O
     role_name_update_settings_cache["role_settings"][str(role.id)] = settings
     await settings_manager.save(role_name_update_settings_cache)
     await interaction.response.send_message(f"Einstellungen für Rolle **{role.name}** wurden gespeichert.", ephemeral=True)
+    
+@tree.command(name="clear_role", description="Entferne das Icon für eine Rolle")
+@app_commands.describe(
+    role="Wähle die Rolle aus, für die das Icon entfernt werden soll"
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def clear_role(interaction: discord.Interaction, role: discord.Role):
+    """
+    Administratoren können das Icon für eine Rolle entfernen.
+    Dadurch wird das Icon nicht mehr in den globalen Nickname eingefügt.
+    """
+    global role_name_update_settings_cache
+    if "role_settings" not in role_name_update_settings_cache:
+        role_name_update_settings_cache["role_settings"] = {}
+    
+    if str(role.id) in role_name_update_settings_cache["role_settings"]:
+        del role_name_update_settings_cache["role_settings"][str(role.id)]
+        await settings_manager.save(role_name_update_settings_cache)
+        await interaction.response.send_message(f"Icon für Rolle **{role.name}** wurde entfernt.", ephemeral=True)
+    else:
+        await interaction.response.send_message(f"Für Rolle **{role.name}** war kein Icon gesetzt.", ephemeral=True)
+    
+
+@tree.command(name="set_pattern", description="Setze das globale Namensmuster")
+@app_commands.describe(
+    pattern="Das Namensmuster, z.B. '[{icons}] {name}' (Platzhalter: {icons} für kombinierte Icons, {name} für den ursprünglichen Namen)"
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def set_pattern(interaction: discord.Interaction, pattern: str):
+    """
+    Administratoren können das globale Namensmuster festlegen.
+    Dieses Muster wird für alle Mitglieder verwendet, die Icons zugewiesen haben.
+    """
+    global role_name_update_settings_cache
+    role_name_update_settings_cache["global_pattern"] = pattern
+    await settings_manager.save(role_name_update_settings_cache)
+    await interaction.response.send_message(f"Globales Namensmuster wurde auf `{pattern}` gesetzt.", ephemeral=True)
     
 @set_pattern.autocomplete("pattern")
 async def pattern_autocomplete(interaction: discord.Interaction, current: str):
