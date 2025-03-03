@@ -6,6 +6,8 @@ __pycache__/
 # C extensions
 *.so
 
+role_name_settings.json
+
 # Distribution / packaging
 .Python
 build/

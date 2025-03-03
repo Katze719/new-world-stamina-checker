@@ -677,7 +677,7 @@ async def list_roles(interaction: discord.Interaction):
     
     # Teile die Liste in Seiten zu je 25 Einträgen auf
     pages = []
-    items_per_page = 25
+    items_per_page = 5
     for i in range(0, len(roles_list), items_per_page):
         page_roles = roles_list[i:i+items_per_page]
         embed = discord.Embed(
@@ -686,7 +686,7 @@ async def list_roles(interaction: discord.Interaction):
             color=discord.Color.blue()
         )
         for role_name, icon, prio in page_roles:
-            embed.add_field(name=role_name, value=f"**Icon:** {icon}\n**Priorität:** {prio}", inline=False)
+            embed.add_field(name=f"{role_name}", value=f"- Icon: {icon}\n- Priorität: {prio}", inline=False)
         embed.set_footer(text=f"Seite {i // items_per_page + 1} von {((len(roles_list)-1) // items_per_page) + 1}")
         pages.append(embed)
     
@@ -697,7 +697,7 @@ async def list_roles(interaction: discord.Interaction):
 
     # Erstelle eine Paginierungs-View mit Buttons
     class Paginator(discord.ui.View):
-        def __init__(self, embeds, timeout=60):
+        def __init__(self, embeds, timeout=180):
             super().__init__(timeout=timeout)
             self.embeds = embeds
             self.current_page = 0
@@ -705,16 +705,16 @@ async def list_roles(interaction: discord.Interaction):
         async def update_message(self, interaction: discord.Interaction):
             await interaction.response.edit_message(embed=self.embeds[self.current_page], view=self)
 
-        @discord.ui.button(label="Vorherige", style=discord.ButtonStyle.primary)
-        async def previous(self, button: discord.ui.Button, interaction: discord.Interaction):
+        @discord.ui.button(label="< Vorherige", style=discord.ButtonStyle.primary)
+        async def previous(self, interaction: discord.Interaction, button: discord.ui.Button):
             if self.current_page > 0:
                 self.current_page -= 1
                 await self.update_message(interaction)
             else:
                 await interaction.response.defer()
 
-        @discord.ui.button(label="Nächste", style=discord.ButtonStyle.primary)
-        async def next(self, button: discord.ui.Button, interaction: discord.Interaction):
+        @discord.ui.button(label="Nächste >", style=discord.ButtonStyle.primary)
+        async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
             if self.current_page < len(self.embeds) - 1:
                 self.current_page += 1
                 await self.update_message(interaction)
