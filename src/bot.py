@@ -15,6 +15,7 @@ from google import genai
 from logger import logger as log
 import matplotlib
 import jsonFileManager
+from typing import Optional
 
 matplotlib.use('Agg')  # Nutzt ein nicht-interaktives Backend für Speicherung
 import matplotlib.pyplot as plt
@@ -503,12 +504,25 @@ async def update_member_nickname(member: discord.Member):
     und das globale Pattern angewandt.
     """
     role_settings = role_name_update_settings_cache.get("role_settings", {})
-    icons = ""
+    icons_with_prio = []
     for role in member.roles:
-        if str(role.id) in role_settings:
-            icon = role_settings[str(role.id)].get("icon", "")
-            icons += icon
+        role_id = str(role.id)
+        if role_id in role_settings:
+            settings = role_settings[role_id]
+            icon = settings.get("icon", "")
+            prio = settings.get("prio", 0)  # Standard-Priorität, falls keine gesetzt ist
+            icons_with_prio.append((prio, icon))
 
+    # Beispiel: Wenn eine höhere Zahl eine höhere Priorität bedeutet,
+    # sortiere absteigend, sodass das Icon mit der höchsten Priorität links steht.
+    icons_with_prio.sort(key=lambda x: x[0], reverse=True)
+    
+    # Falls bei dir eine niedrigere Zahl eine höhere Priorität bedeutet,
+    # sortiere stattdessen aufsteigend:
+    # icons_with_prio.sort(key=lambda x: x[0])
+    
+    icons = "".join(icon for prio, icon in icons_with_prio)
+    
     pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
     regex = pattern_to_regex(pattern)
     match = regex.match(member.display_name)
@@ -543,23 +557,34 @@ async def on_member_update(before, after: discord.Member):
     """
     await update_member_nickname(after)
 
-@tree.command(name="set_role", description="Setze Icon für eine Rolle")
+@tree.command(name="set_role", description="Setze Icon und/oder Priorität für eine Rolle")
 @app_commands.describe(
-    role="Wähle die Rolle aus, für die das Icon gesetzt werden soll",
-    icon="Das Icon, das vor dem Benutzernamen angezeigt werden soll"
+    role="Wähle die Rolle aus, für die die Einstellungen gesetzt werden sollen",
+    icon="Das Icon, das vor dem Benutzernamen angezeigt werden soll (optional)",
+    prio="Die Priorität der Rolle (optional, Standard: 0)"
 )
 @app_commands.checks.has_permissions(administrator=True)
-async def set_role(interaction: discord.Interaction, role: discord.Role, icon: str):
+async def set_role(interaction: discord.Interaction, role: discord.Role, icon: Optional[str] = None, prio: Optional[int] = None):
     """
-    Administratoren können pro Rolle ein Icon festlegen.
+    Administratoren können pro Rolle ein Icon und/oder eine Priorität festlegen.
     Das Icon wird später mit dem globalen Pattern kombiniert.
     """
     global role_name_update_settings_cache
     if "role_settings" not in role_name_update_settings_cache:
         role_name_update_settings_cache["role_settings"] = {}
-    role_name_update_settings_cache["role_settings"][str(role.id)] = {"icon": icon}
+    
+    # Bestehende Einstellungen abrufen oder ein leeres Dictionary anlegen
+    settings = role_name_update_settings_cache["role_settings"].get(str(role.id), {})
+    
+    # Nur setzen, wenn ein Wert übergeben wurde
+    if icon is not None:
+        settings["icon"] = icon
+    if prio is not None:
+        settings["prio"] = prio
+
+    role_name_update_settings_cache["role_settings"][str(role.id)] = settings
     await settings_manager.save(role_name_update_settings_cache)
-    await interaction.response.send_message(f"Icon für Rolle **{role.name}** wurde gespeichert.", ephemeral=True)
+    await interaction.response.send_message(f"Einstellungen für Rolle **{role.name}** wurden gespeichert.", ephemeral=True)
     
 @tree.command(name="clear_role", description="Entferne das Icon für eine Rolle")
 @app_commands.describe(
@@ -622,5 +647,81 @@ async def update_all_icons_with_roles(interaction: discord.Interaction):
             await update_member_nickname(member)
 
     await interaction.edit_original_response(content="Icons wurden Aktualisiert!")
+    
+@tree.command(name="list_roles", description="Zeigt alle Rollen mit Icon und Priorität an")
+@app_commands.checks.has_permissions(administrator=True)
+async def list_roles(interaction: discord.Interaction):
+    """
+    Zeigt alle in den Einstellungen konfigurierten Rollen an, inklusive Icon und Priorität.
+    Falls mehr als 25 Rollen konfiguriert sind, wird die Liste in mehrere Seiten (Embeds) aufgeteilt,
+    zwischen denen per Buttons navigiert werden kann.
+    """
+    global role_name_update_settings_cache
+    role_settings = role_name_update_settings_cache.get("role_settings", {})
+    
+    if not role_settings:
+        await interaction.response.send_message("Es sind keine Rollen-Einstellungen vorhanden.", ephemeral=True)
+        return
+    
+    # Erstelle eine Liste mit (Rollenname, Icon, Priorität)
+    roles_list = []
+    for role_id, settings in role_settings.items():
+        role_obj = interaction.guild.get_role(int(role_id))
+        role_name = role_obj.name if role_obj else f"Unbekannte Rolle ({role_id})"
+        icon = settings.get("icon", "")
+        prio = settings.get("prio", 0)
+        roles_list.append((role_name, icon, prio))
+    
+    # Optional: Sortiere die Rollen nach Priorität (absteigend)
+    roles_list.sort(key=lambda x: x[2], reverse=True)
+    
+    # Teile die Liste in Seiten zu je 25 Einträgen auf
+    pages = []
+    items_per_page = 5
+    for i in range(0, len(roles_list), items_per_page):
+        page_roles = roles_list[i:i+items_per_page]
+        embed = discord.Embed(
+            title="Rollen Einstellungen",
+            description="Konfigurierte Rollen mit ihren Icons und Prioritäten:",
+            color=discord.Color.blue()
+        )
+        for role_name, icon, prio in page_roles:
+            embed.add_field(name=f"{role_name}", value=f"- Icon: {icon}\n- Priorität: {prio}", inline=False)
+        embed.set_footer(text=f"Seite {i // items_per_page + 1} von {((len(roles_list)-1) // items_per_page) + 1}")
+        pages.append(embed)
+    
+    # Falls es nur eine Seite gibt, sende diese direkt
+    if len(pages) == 1:
+        await interaction.response.send_message(embed=pages[0], ephemeral=True)
+        return
+
+    # Erstelle eine Paginierungs-View mit Buttons
+    class Paginator(discord.ui.View):
+        def __init__(self, embeds, timeout=180):
+            super().__init__(timeout=timeout)
+            self.embeds = embeds
+            self.current_page = 0
+
+        async def update_message(self, interaction: discord.Interaction):
+            await interaction.response.edit_message(embed=self.embeds[self.current_page], view=self)
+
+        @discord.ui.button(label="< Vorherige", style=discord.ButtonStyle.primary)
+        async def previous(self, interaction: discord.Interaction, button: discord.ui.Button):
+            if self.current_page > 0:
+                self.current_page -= 1
+                await self.update_message(interaction)
+            else:
+                await interaction.response.defer()
+
+        @discord.ui.button(label="Nächste >", style=discord.ButtonStyle.primary)
+        async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
+            if self.current_page < len(self.embeds) - 1:
+                self.current_page += 1
+                await self.update_message(interaction)
+            else:
+                await interaction.response.defer()
+    
+    view = Paginator(pages)
+    await interaction.response.send_message(embed=pages[0], view=view, ephemeral=True)
 
 bot.run(DISCORD_TOKEN)
