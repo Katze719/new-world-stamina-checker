@@ -658,11 +658,11 @@ async def list_roles(interaction: discord.Interaction):
     """
     global role_name_update_settings_cache
     role_settings = role_name_update_settings_cache.get("role_settings", {})
-    
+
     if not role_settings:
         await interaction.response.send_message("Es sind keine Rollen-Einstellungen vorhanden.", ephemeral=True)
         return
-    
+
     # Erstelle eine Liste mit (Rollenname, Icon, Priorität)
     roles_list = []
     for role_id, settings in role_settings.items():
@@ -671,57 +671,132 @@ async def list_roles(interaction: discord.Interaction):
         icon = settings.get("icon", "")
         prio = settings.get("prio", 0)
         roles_list.append((role_name, icon, prio))
-    
-    # Optional: Sortiere die Rollen nach Priorität (absteigend)
+
+    # Sortiere die Rollen nach Priorität (absteigend)
     roles_list.sort(key=lambda x: x[2], reverse=True)
-    
-    # Teile die Liste in Seiten zu je 25 Einträgen auf
+
+    # Teile die Liste in Seiten zu je 5 Einträgen auf
     pages = []
     items_per_page = 5
     for i in range(0, len(roles_list), items_per_page):
-        page_roles = roles_list[i:i+items_per_page]
+        page_roles = roles_list[i:i + items_per_page]
         embed = discord.Embed(
             title="Rollen Einstellungen",
             description="Konfigurierte Rollen mit ihren Icons und Prioritäten:",
             color=discord.Color.blue()
         )
         for role_name, icon, prio in page_roles:
-            embed.add_field(name=f"{role_name}", value=f"- Icon: {icon}\n- Priorität: {prio}", inline=False)
-        embed.set_footer(text=f"Seite {i // items_per_page + 1} von {((len(roles_list)-1) // items_per_page) + 1}")
-        pages.append(embed)
-    
-    # Falls es nur eine Seite gibt, sende diese direkt
+            embed.add_field(name=role_name, value=f"- Icon: {icon}\n- Priorität: {prio}", inline=False)
+        embed.set_footer(text=f"Seite {i // items_per_page + 1} von {((len(roles_list) - 1) // items_per_page) + 1}")
+        pages.append((embed, page_roles))
+
+    # Falls es nur eine Seite gibt, sende diese mit den Rollen-Buttons
     if len(pages) == 1:
-        await interaction.response.send_message(embed=pages[0], ephemeral=True)
+        view = RoleButtonsView(pages[0][1])
+        await interaction.response.send_message(embed=pages[0][0], view=view, ephemeral=True)
         return
 
-    # Erstelle eine Paginierungs-View mit Buttons
-    class Paginator(discord.ui.View):
-        def __init__(self, embeds, timeout=180):
-            super().__init__(timeout=timeout)
-            self.embeds = embeds
-            self.current_page = 0
-
-        async def update_message(self, interaction: discord.Interaction):
-            await interaction.response.edit_message(embed=self.embeds[self.current_page], view=self)
-
-        @discord.ui.button(label="< Vorherige", style=discord.ButtonStyle.primary)
-        async def previous(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if self.current_page > 0:
-                self.current_page -= 1
-                await self.update_message(interaction)
-            else:
-                await interaction.response.defer()
-
-        @discord.ui.button(label="Nächste >", style=discord.ButtonStyle.primary)
-        async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if self.current_page < len(self.embeds) - 1:
-                self.current_page += 1
-                await self.update_message(interaction)
-            else:
-                await interaction.response.defer()
-    
+    # Bei mehreren Seiten wird der Paginator verwendet
     view = Paginator(pages)
-    await interaction.response.send_message(embed=pages[0], view=view, ephemeral=True)
+    await interaction.response.send_message(embed=pages[0][0], view=view, ephemeral=True)
+
+
+# Die Buttons für die Rollen, die den Modal öffnen
+class RoleSettingsButton(discord.ui.Button):
+    def __init__(self, role_name, icon, prio):
+        super().__init__(label=role_name, style=discord.ButtonStyle.secondary)
+        self.role_name = role_name
+        self.icon = icon
+        self.prio = prio
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(RoleSettingsInput(self.role_name, self.icon, self.prio))
+
+
+# Der Modal, in dem die Rolleneinstellungen bearbeitet werden
+class RoleSettingsInput(discord.ui.Modal, title="Rollen Einstellungen"):
+    def __init__(self, role_name, icon, prio):
+        super().__init__()
+        self.role_name = role_name
+        self.icon_input = discord.ui.TextInput(label="Icon", default=icon, required=False)
+        self.prio_input = discord.ui.TextInput(label="Priorität", default=str(prio), required=False)
+        self.add_item(self.icon_input)
+        self.add_item(self.prio_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        global role_name_update_settings_cache
+        role_settings = role_name_update_settings_cache.get("role_settings", {})
+        for role_id, settings in role_settings.items():
+            role_obj = interaction.guild.get_role(int(role_id))
+            if role_obj and role_obj.name == self.role_name:
+                settings["icon"] = self.icon_input.value
+                settings["prio"] = int(self.prio_input.value)
+                role_name_update_settings_cache["role_settings"][str(role_obj.id)] = settings
+                await settings_manager.save(role_name_update_settings_cache)
+                await interaction.response.send_message(f"Einstellungen für Rolle **{self.role_name}** wurden aktualisiert.", ephemeral=True)
+                guild = interaction.guild
+                if guild:
+                    for member in guild.members:
+                        await update_member_nickname(member)
+                return
+        await interaction.response.send_message(f"Rolle **{self.role_name}** nicht gefunden.", ephemeral=True)
+
+
+# View, die nur für eine einzelne Seite genutzt wird
+class RoleButtonsView(discord.ui.View):
+    def __init__(self, roles):
+        super().__init__(timeout=None)
+        for role_name, icon, prio in roles:
+            self.add_item(RoleSettingsButton(role_name, icon, prio))
+
+
+# Paginator, der die Buttons und Navigation kombiniert
+class Paginator(discord.ui.View):
+    def __init__(self, pages, timeout=None):
+        super().__init__(timeout=timeout)
+        self.pages = pages
+        self.current_page = 0
+        self.update_view()
+
+    def update_view(self):
+        self.clear_items()
+        embed, roles = self.pages[self.current_page]
+        # Füge alle Rollen-Buttons der aktuellen Seite hinzu
+        for role_name, icon, prio in roles:
+            self.add_item(RoleSettingsButton(role_name, icon, prio))
+        # Füge die Navigations-Buttons hinzu
+        self.add_item(PreviousButton(self))
+        self.add_item(NextButton(self))
+
+    async def update_message(self, interaction: discord.Interaction):
+        embed, _ = self.pages[self.current_page]
+        self.update_view()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+
+class PreviousButton(discord.ui.Button):
+    def __init__(self, paginator):
+        super().__init__(label="< Vorherige", style=discord.ButtonStyle.primary)
+        self.paginator = paginator
+
+    async def callback(self, interaction: discord.Interaction):
+        if self.paginator.current_page > 0:
+            self.paginator.current_page -= 1
+            await self.paginator.update_message(interaction)
+        else:
+            await interaction.response.defer()
+
+
+class NextButton(discord.ui.Button):
+    def __init__(self, paginator):
+        super().__init__(label="Nächste >", style=discord.ButtonStyle.primary)
+        self.paginator = paginator
+
+    async def callback(self, interaction: discord.Interaction):
+        if self.paginator.current_page < len(self.paginator.pages) - 1:
+            self.paginator.current_page += 1
+            await self.paginator.update_message(interaction)
+        else:
+            await interaction.response.defer()
 
 bot.run(DISCORD_TOKEN)
