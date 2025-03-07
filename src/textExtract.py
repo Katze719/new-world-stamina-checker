@@ -8,6 +8,7 @@ import cv2
 # and the image we would be using 
 pytesseract.tesseract_cmd = "/usr/bin/tesseract"
 
+BASE_THRESHOLD = 80
 
 def extractNamesFromImage(path, names):
     # Bild laden und vorverarbeiten
@@ -21,19 +22,16 @@ def extractNamesFromImage(path, names):
 
     # Liste der Nutzernamen, auch solche mit Leerzeichen
 
-    def is_similar(user, text, threshold=80):
+    def is_similar(user: str, text: str, threshold=BASE_THRESHOLD):
         """
         Prüft, ob der Nutzername (user) in irgendeiner n-Gramm-Kombination des OCR-Textes
         gefunden wird, wobei n der Anzahl der Wörter im Nutzernamen entspricht.
         """
-        if ".." in text:
-            threshold = 60
-
-        if "goat" in text.lower():
-            user = user.replace(".", "").replace("|", "")
-            threshold = 50
-
         # Aufteilen des Nutzernamens in Wörter (z.B. ["Max", "Mustermann"])
+
+        if "|| G.O.A.T ||" in user:
+            user = user.replace(".", "").replace("|", "").replace(" ", "")
+
         user_words = user.split()
         num_words = len(user_words)
         # Aufteilen des gesamten Textes in Wörter
@@ -48,8 +46,15 @@ def extractNamesFromImage(path, names):
             # Fenster (n-Gramm) aus den nächsten num_words Wörtern
             window = " ".join(text_words[i:i+num_words])
             for wind in window.split("\n"):
+                threshold = BASE_THRESHOLD
+                if ".." in wind:
+                    threshold = 60
+                
+                if "goat" in wind.lower() and "goat" in user.lower():
+                    user = user.replace(".", "").replace("|", "").replace(" ", "")
+                    threshold = 60
+
                 similarity = fuzz.ratio(user.lower(), wind.lower())
-                print(wind, similarity)
                 if similarity >= threshold:
                     return True
         return False
