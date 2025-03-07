@@ -21,11 +21,18 @@ def extractNamesFromImage(path, names):
 
     # Liste der Nutzernamen, auch solche mit Leerzeichen
 
-    def is_similar(user, text, threshold=79):
+    def is_similar(user, text, threshold=80):
         """
         Prüft, ob der Nutzername (user) in irgendeiner n-Gramm-Kombination des OCR-Textes
         gefunden wird, wobei n der Anzahl der Wörter im Nutzernamen entspricht.
         """
+        if ".." in text:
+            threshold = 60
+
+        if "goat" in text.lower():
+            user = user.replace(".", "").replace("|", "")
+            threshold = 50
+
         # Aufteilen des Nutzernamens in Wörter (z.B. ["Max", "Mustermann"])
         user_words = user.split()
         num_words = len(user_words)
@@ -40,9 +47,11 @@ def extractNamesFromImage(path, names):
         for i in range(len(text_words) - num_words + 1):
             # Fenster (n-Gramm) aus den nächsten num_words Wörtern
             window = " ".join(text_words[i:i+num_words])
-            similarity = fuzz.ratio(user.lower(), window.lower())
-            if similarity >= threshold:
-                return True
+            for wind in window.split("\n"):
+                similarity = fuzz.ratio(user.lower(), wind.lower())
+                print(wind, similarity)
+                if similarity >= threshold:
+                    return True
         return False
 
     found_names = []
