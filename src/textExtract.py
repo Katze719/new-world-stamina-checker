@@ -21,7 +21,7 @@ def extractNamesFromImage(path, names):
 
     # Liste der Nutzernamen, auch solche mit Leerzeichen
 
-    def is_similar(user, text, threshold=60):
+    def is_similar(user, text, threshold=79):
         """
         Prüft, ob der Nutzername (user) in irgendeiner n-Gramm-Kombination des OCR-Textes
         gefunden wird, wobei n der Anzahl der Wörter im Nutzernamen entspricht.
