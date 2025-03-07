@@ -29,8 +29,8 @@ def extractNamesFromImage(path, names):
         """
         # Aufteilen des Nutzernamens in Wörter (z.B. ["Max", "Mustermann"])
 
-        if "|| G.O.A.T ||" in user:
-            user = user.replace(".", "").replace("|", "").replace(" ", "")
+        if "II G.O.A.T II" in user:
+            user = user.replace(".", "").replace(" ", "")
 
         user_words = user.split()
         num_words = len(user_words)
@@ -51,7 +51,6 @@ def extractNamesFromImage(path, names):
                     threshold = 60
                 
                 if "goat" in wind.lower() and "goat" in user.lower():
-                    user = user.replace(".", "").replace("|", "").replace(" ", "")
                     threshold = 60
 
                 similarity = fuzz.ratio(user.lower(), wind.lower())
