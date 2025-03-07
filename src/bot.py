@@ -1,4 +1,5 @@
 import discord
+from discord.ext import tasks 
 from discord import app_commands
 import yt_dlp
 import os
@@ -17,6 +18,8 @@ import matplotlib
 import textExtract
 import jsonFileManager
 from typing import Optional
+import datetime
+from zoneinfo import ZoneInfo  # Erfordert Python 3.9+
 
 matplotlib.use('Agg')  # Nutzt ein nicht-interaktives Backend für Speicherung
 import matplotlib.pyplot as plt
@@ -326,6 +329,7 @@ Die Person war {stamina_events} Mal out of stamina im letzten Krieg. Gib nur ein
 async def on_ready():
     global role_name_update_settings_cache
     role_name_update_settings_cache = await settings_manager.load()
+    check_channel.start()
     log.info(f"Bot ist eingeloggt als {bot.user}")
     try:
         synced = await tree.sync()
@@ -844,6 +848,7 @@ async def extractUsers(message: discord.Message):
     os.remove(image_path)
     return []
 
+@app_commands.checks.has_permissions(administrator=True)
 @tree.command(name="watch_this_for_user_extraction", description="Extrahiert User aus Bildern in diesem Channel")
 async def watch_this_channel_user_extraction(interaction: discord.Interaction):
     channels = await gp_channel_manager.load()
@@ -860,6 +865,7 @@ async def watch_this_channel_user_extraction(interaction: discord.Interaction):
         ephemeral=True
     )
 
+@app_commands.checks.has_permissions(administrator=True)
 @tree.command(name="remove_this_from_user_extraction", description="Entferne diesen Channel von der User-Extraktionsliste")
 async def remove_this_channel_user_extraction(interaction: discord.Interaction):
     channels = await gp_channel_manager.load()
@@ -872,6 +878,74 @@ async def remove_this_channel_user_extraction(interaction: discord.Interaction):
     channels["watch_user_exctaction_channel"] = None
     await gp_channel_manager.save(channels)
     await interaction.response.send_message("Channel wurde erfolgreich von der User-Extraktionsliste entfernt!", ephemeral=True)
+
+@app_commands.checks.has_permissions(administrator=True)
+@tree.command(name="set_check_channel", description="Checkt den channel alle 5 Minuten, wenn nach 1 stunnde keine Nachricht")
+async def set_check_channel(interaction: discord.Interaction, role: discord.Role):
+    channels = await gp_channel_manager.load()
+    channel_id = str(interaction.channel.id)
+
+    h = channels.get("send_hour_channel") or {}
+
+    if channel_id == h.get("channel_id", None):
+        await interaction.response.send_message("Dieser Channel ist bereits in der User-Extraktionsliste.", ephemeral=True)
+        return
+    
+    channels["send_hour_channel"] = {
+        "channel_id": channel_id,
+        "role_id": role.id
+    }
+    await gp_channel_manager.save(channels)
+    await interaction.response.send_message(
+        f"Channel wurde erfolgreich zur User-Extraktionsliste hinzugefügt!",
+        ephemeral=True
+    )
+
+@app_commands.checks.has_permissions(administrator=True)
+@tree.command(name="remove_check_channel", description="Entferne diesen Channel von der User-Extraktionsliste")
+async def remove_check_channel(interaction: discord.Interaction):
+    channels = await gp_channel_manager.load()
+    channel_id = str(interaction.channel.id)
+
+    h = channels.get("send_hour_channel") or {}
+
+    if channel_id != h.get("channel_id", None):
+        await interaction.response.send_message("Dieser Channel ist nicht in der User-Extraktionsliste.", ephemeral=True)
+        return
+    
+    channels["send_hour_channel"] = {}
+    await gp_channel_manager.save(channels)
+    await interaction.response.send_message("Channel wurde erfolgreich von der User-Extraktionsliste entfernt!", ephemeral=True)
+
+@tasks.loop(minutes=5)
+async def check_channel():
+    channels = await gp_channel_manager.load()
+    send_hour_channel_dict = channels.get("send_hour_channel") or {}
+    channel = bot.get_channel(int(send_hour_channel_dict.get("channel_id", 0)))
+    if channel is None:
+        return
+
+    # Aktuelle Zeit in der deutschen Zeitzone (Europe/Berlin)
+    jetzt = datetime.datetime.now(ZoneInfo("Europe/Berlin"))
+    aktuelle_stunde = jetzt.hour
+
+    # Kein Ping zwischen 22:00 und 08:00 Uhr (deutsche Zeit)
+    if aktuelle_stunde >= 22 or aktuelle_stunde < 8:
+        return
+
+    # Letzte Nachricht im Channel abrufen
+    letzte_nachricht = None
+    async for message in channel.history(limit=1):
+        letzte_nachricht = message
+
+    if letzte_nachricht:
+        # Die Nachricht-Zeit wird in UTC gespeichert; umwandeln in Europe/Berlin
+        message_time = letzte_nachricht.created_at.astimezone(ZoneInfo("Europe/Berlin"))
+        zeit_diff = (jetzt - message_time).total_seconds()
+        if zeit_diff > 3600:  # mehr als 1 Stunde (3600 Sekunden)
+            role = channel.guild.get_role(send_hour_channel_dict.get("role_id", None))
+            if role:
+                await channel.send(f"{role.mention} ey hier ist mal wieder ziemlich ruhig, wir wollen wachsen wir brauchen Werbung! Jeder darf Werbung machen also abfahrt!")
 
 @tree.command(name="test", description="Test Command")
 async def test(interaction: discord.Interaction):
