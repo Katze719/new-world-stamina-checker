@@ -3,6 +3,7 @@ FROM python:3.10
 # Installiere benötigte Pakete für OpenCV & Tesseract OCR
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
+    tesseract-ocr-deu \
     libtesseract-dev \
     libasound2-dev \
     libavcodec-extra \

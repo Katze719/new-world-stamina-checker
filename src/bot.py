@@ -14,6 +14,7 @@ from collections import deque
 from google import genai
 from logger import logger as log
 import matplotlib
+import textExtract
 import jsonFileManager
 from typing import Optional
 
@@ -48,9 +49,11 @@ def ensure_hidden_attribute(data):
 # Datei, in der die Kanäle gespeichert werden
 VOD_CHANNELS_FILE_PATH = "./vod_channels.json"
 ROLE_NAME_UPDATE_SETTINGS_PATH = "./role_name_settings.json"
+GP_CHANNEL_IDS_FILE = "./gp_channel_ids.json"
 
 vod_channel_manager = jsonFileManager.JsonFileManager(VOD_CHANNELS_FILE_PATH, ensure_hidden_attribute)
 settings_manager = jsonFileManager.JsonFileManager(ROLE_NAME_UPDATE_SETTINGS_PATH)
+gp_channel_manager = jsonFileManager.JsonFileManager(GP_CHANNEL_IDS_FILE)
 
 role_name_update_settings_cache = {}
 
@@ -338,6 +341,14 @@ async def on_message(message: discord.Message):
     if message.author.bot:
         return
     
+    watch_user_exctaction_channel = (await gp_channel_manager.load()).get("watch_user_exctaction_channel", None)
+    if watch_user_exctaction_channel and str(message.channel.id) == str(watch_user_exctaction_channel):
+        users = await extractUsers(message)    
+        if users:
+            # convert to csv string
+            users = ",".join(users)
+            await message.channel.send(f"Users: {users}")
+
     channels = await vod_channel_manager.load()
     if str(message.channel.id) not in channels:
         return
@@ -798,5 +809,74 @@ class NextButton(discord.ui.Button):
             await self.paginator.update_message(interaction)
         else:
             await interaction.response.defer()
+
+async def extractUsers(message: discord.Message):
+    # check if user sent a image
+    if not message.attachments:
+        return []
+    
+    # download image
+    attachment = message.attachments[0]
+    image_path = os.path.join("temp", attachment.filename)
+    os.makedirs("temp", exist_ok=True)
+    await attachment.save(image_path)
+
+    guild = message.guild
+    if guild:
+        # create list with user nicknames
+        nicknames = []
+        for member in guild.members:
+            pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
+            regex = pattern_to_regex(pattern)
+            match = regex.match(member.display_name)
+            if match:
+                base_name = match.group("name").strip()
+            else:
+                base_name = member.display_name
+            nicknames.append(base_name)
+
+        # extract users from image
+        users = textExtract.extractNamesFromImage(image_path, nicknames)
+        os.remove(image_path)
+        return users
+    
+    #delete tmp file
+    os.remove(image_path)
+    return []
+
+@tree.command(name="watch_this_for_user_extraction", description="Extrahiert User aus Bildern in diesem Channel")
+async def watch_this_channel_user_extraction(interaction: discord.Interaction):
+    channels = await gp_channel_manager.load()
+    channel_id = str(interaction.channel.id)
+
+    if channel_id == channels.get("watch_user_exctaction_channel", None):
+        await interaction.response.send_message("Dieser Channel ist bereits in der User-Extraktionsliste.", ephemeral=True)
+        return
+
+    channels["watch_user_exctaction_channel"] = channel_id
+    await gp_channel_manager.save(channels)
+    await interaction.response.send_message(
+        f"Channel wurde erfolgreich zur User-Extraktionsliste hinzugefügt!",
+        ephemeral=True
+    )
+
+@tree.command(name="remove_this_from_user_extraction", description="Entferne diesen Channel von der User-Extraktionsliste")
+async def remove_this_channel_user_extraction(interaction: discord.Interaction):
+    channels = await gp_channel_manager.load()
+    channel_id = str(interaction.channel.id)
+
+    if channel_id != channels.get("watch_user_exctaction_channel", None):
+        await interaction.response.send_message("Dieser Channel ist nicht in der User-Extraktionsliste.", ephemeral=True)
+        return
+
+    channels["watch_user_exctaction_channel"] = None
+    await gp_channel_manager.save(channels)
+    await interaction.response.send_message("Channel wurde erfolgreich von der User-Extraktionsliste entfernt!", ephemeral=True)
+
+@tree.command(name="test", description="Test Command")
+async def test(interaction: discord.Interaction):
+    view = discord.ui.View()
+    view.add_item(discord.ui.Button(label="Test"))
+    await interaction.response.send_message("Test", view=view)        
 
 bot.run(DISCORD_TOKEN)
