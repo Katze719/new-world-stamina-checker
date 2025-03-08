@@ -942,7 +942,7 @@ async def check_channel():
         # Die Nachricht-Zeit wird in UTC gespeichert; umwandeln in Europe/Berlin
         message_time = letzte_nachricht.created_at.astimezone(ZoneInfo("Europe/Berlin"))
         zeit_diff = (jetzt - message_time).total_seconds()
-        if zeit_diff > 3600:  # mehr als 1 Stunde (3600 Sekunden)
+        if zeit_diff > 3600 * 2:  # mehr als 1 Stunde (3600 Sekunden)
             role = channel.guild.get_role(send_hour_channel_dict.get("role_id", None))
             if role:
                 await channel.send(f"{role.mention} ey hier ist mal wieder ziemlich ruhig, wir wollen wachsen wir brauchen Werbung! Jeder darf Werbung machen also abfahrt!")
