@@ -98,7 +98,7 @@ async def update_member(client: gspread_asyncio.AsyncioGspreadClientManager, mem
     for i, cell in enumerate(A_col):
         if cell == "":
             continue
-        if cell not in [full_parse(member) for member in member.guild.members if get_company(member)]:
+        if cell not in [full_parse(member) for member in member.guild.members]:
             # write empty cells from A to L
             for j in range(12):
                 await sheet.update_acell(f"{chr(ord('A') + j)}{i + OFFSET + 1}", "")
