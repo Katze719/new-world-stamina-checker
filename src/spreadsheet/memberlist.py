@@ -37,12 +37,19 @@ async def update_member(client: gspread_asyncio.AsyncioGspreadClientManager, mem
     else:
         return
 
-    # Parse the display name
-    member_name = parse_display_name(member)
+    def full_parse(member):
+        # Parse the display name
+        member_name = parse_display_name(member)
 
-    # Mach aus namen wie "Dirty Torty | Jan" -> "Dirty Tory"
-    member_name = member_name.split(" | ")[0]
-    member_name = member_name.split(" I ")[0]
+        # Mach aus namen wie "Dirty Torty | Jan" -> "Dirty Tory"
+        member_name = member_name.split(" | ")[0]
+        member_name = member_name.split(" I ")[0]
+        member_name = member_name.replace("🏮 ", "")
+        member_name = member_name.replace("🏮", "")
+        return member_name
+    
+    member_name = full_parse(member)
+    
 
     # Open the worksheet
     auth = await client.authorize()
@@ -78,3 +85,11 @@ async def update_member(client: gspread_asyncio.AsyncioGspreadClientManager, mem
             break
     else:
         await sheet.update_acell(f"{Column.CLASS.value}{row_number}", "Unbekannt")
+
+    # delete users from list that are not in discord
+    for i, cell in enumerate(A_col):
+        if cell == "":
+            break
+        if cell not in [full_parse(member) for member in member.guild.members]:
+            await sheet.delete_rows(i + OFFSET + 1)
+            break
