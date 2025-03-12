@@ -42,6 +42,7 @@ async def update_member(client: gspread_asyncio.AsyncioGspreadClientManager, mem
 
     # Mach aus namen wie "Dirty Torty | Jan" -> "Dirty Tory"
     member_name = member_name.split(" | ")[0]
+    member_name = member_name.split(" I ")[0]
 
     # Open the worksheet
     auth = await client.authorize()
