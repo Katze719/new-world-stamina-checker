@@ -47,7 +47,7 @@ async def update_member(client: gspread_asyncio.AsyncioGspreadClientManager, mem
     sheet = await worksheet.get_worksheet(0)
 
     # Get the column A
-    A_col = await sheet.get_values("A1:A115", major_dimension="COLUMNS")
+    A_col = await sheet.get_values("A1:A114", major_dimension="COLUMNS")
     A_col = A_col[0]
 
     # Delete first 9 entries
