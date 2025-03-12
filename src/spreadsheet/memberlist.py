@@ -28,13 +28,21 @@ async def update_member(client: gspread_asyncio.AsyncioGspreadClientManager, mem
 
     user_roles = member.roles
     user_role_ids = [role.id for role in user_roles]
-    company = None
-        
-    for user_role_id in user_role_ids:
-        if str(user_role_id) in spreadsheet_role_settings["company_role"]:
-            company = spreadsheet_role_settings["company_role"][str(user_role_id)]
-            break
-    else:
+
+    def get_company(member: discord.Member):
+        user_roles_ = member.roles
+        user_role_ids_ = [role.id for role in user_roles_]
+        company = None
+            
+        for user_role_id in user_role_ids_:
+            if str(user_role_id) in spreadsheet_role_settings["company_role"]:
+                company = spreadsheet_role_settings["company_role"][str(user_role_id)]
+                break
+
+        return company
+    
+    company = get_company(member)
+    if company is None:
         return
 
     def full_parse(member):
@@ -90,7 +98,7 @@ async def update_member(client: gspread_asyncio.AsyncioGspreadClientManager, mem
     for i, cell in enumerate(A_col):
         if cell == "":
             continue
-        if cell not in [full_parse(member) for member in member.guild.members]:
+        if cell not in [full_parse(member) for member in member.guild.members if get_company(member)]:
             # write empty cells from A to L
             for j in range(12):
                 await sheet.update_acell(f"{chr(ord('A') + j)}{i + OFFSET + 1}", "")
