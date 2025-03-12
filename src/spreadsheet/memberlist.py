@@ -1,4 +1,6 @@
+import gspread.utils
 import gspread_asyncio
+import gspread
 import discord
 from enum import Enum
 import jsonFileManager
@@ -60,7 +62,9 @@ async def update_member(client: gspread_asyncio.AsyncioGspreadClientManager, mem
     else:
         row_number = find_free_cell_in_column(A_col)
         # update cell NAME 
-        await sheet.update_acell(f"{Column.NAME.value}{row_number}", member_name)
+        c = await sheet.acell(f"{Column.NAME.value}{row_number}")
+        c.value = member_name
+        await sheet.update_cells([c], value_input_option=gspread.utils.ValueInputOption.raw)
 
     # update cell COMPANY
     await sheet.update_acell(f"{Column.COMPANY.value}{row_number}", company)
