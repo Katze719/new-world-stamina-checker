@@ -10,6 +10,8 @@ import time
 import json
 import numpy as np
 import colorCheck
+import spreadsheet.authenticate
+import spreadsheet.memberlist
 from videoAnalyzer import VideoAnalyzer
 from collections import deque
 from google import genai
@@ -20,6 +22,8 @@ import jsonFileManager
 from typing import Optional
 import datetime
 from zoneinfo import ZoneInfo  # Erfordert Python 3.9+
+
+import spreadsheet
 
 matplotlib.use('Agg')  # Nutzt ein nicht-interaktives Backend für Speicherung
 import matplotlib.pyplot as plt
@@ -40,6 +44,8 @@ intents.members = True
 bot = discord.Client(intents=intents)
 tree = app_commands.CommandTree(bot)
 
+spreadsheet_acc = spreadsheet.authenticate.create_gspread_manager()
+
 stamina_lock = asyncio.Lock()
 stamina_queue = deque()
 
@@ -53,10 +59,12 @@ def ensure_hidden_attribute(data):
 VOD_CHANNELS_FILE_PATH = "./vod_channels.json"
 ROLE_NAME_UPDATE_SETTINGS_PATH = "./role_name_settings.json"
 GP_CHANNEL_IDS_FILE = "./gp_channel_ids.json"
+SPREADSHEET_ROLE_SETTINGS_PATH = "./spreadsheet_role_settings.json"
 
 vod_channel_manager = jsonFileManager.JsonFileManager(VOD_CHANNELS_FILE_PATH, ensure_hidden_attribute)
 settings_manager = jsonFileManager.JsonFileManager(ROLE_NAME_UPDATE_SETTINGS_PATH)
 gp_channel_manager = jsonFileManager.JsonFileManager(GP_CHANNEL_IDS_FILE)
+spreadsheet_role_settings_manager = jsonFileManager.JsonFileManager(SPREADSHEET_ROLE_SETTINGS_PATH)
 
 role_name_update_settings_cache = {}
 
@@ -565,12 +573,25 @@ async def update_member_nickname(member: discord.Member):
         except discord.NotFound:
             log.error(f"Member {member} wurde nicht gefunden (vermutlich gekickt).")
 
+async def update_member_in_spreadsheet(member: discord.Member):
+    def parse_name(member : discord.Member):
+        pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
+        regex = pattern_to_regex(pattern)
+        match = regex.match(member.display_name)
+        if match:
+            return match.group("name").strip()
+        else:
+            return member.display_name
+
+    await spreadsheet.memberlist.update_member(spreadsheet_acc, member, parse_name, spreadsheet_role_settings_manager)
+
 @bot.event
 async def on_member_update(before, after: discord.Member):
     """
     Wird aufgerufen, wenn sich ein Member ändert und wendet die globalen Regeln an.
     """
     await update_member_nickname(after)
+    await update_member_in_spreadsheet(after)
 
 @tree.command(name="set_role", description="Setze Icon und/oder Priorität für eine Rolle")
 @app_commands.describe(
@@ -651,17 +672,18 @@ async def pattern_autocomplete(interaction: discord.Interaction, current: str):
             choices.append(app_commands.Choice(name=p, value=p))
     return choices
 
-@tree.command(name="update_all_icons_with_roles", description="Updatet alle Icons bei jedem Nutzer")
+@tree.command(name="update_all_users", description="Updatet alle Icons bei jedem Nutzer")
 @app_commands.checks.has_permissions(administrator=True)
-async def update_all_icons_with_roles(interaction: discord.Interaction):
+async def update_all_users(interaction: discord.Interaction):
     # Wende das neue Pattern auf alle Mitglieder an
     await interaction.response.send_message("Update alle Nutzer ...", ephemeral=True)
     guild = interaction.guild
     if guild:
         for member in guild.members:
             await update_member_nickname(member)
+            await update_member_in_spreadsheet(member)
 
-    await interaction.edit_original_response(content="Icons wurden Aktualisiert!")
+    await interaction.edit_original_response(content="Nutzer wurden Aktualisiert!")
     
 @tree.command(name="list_roles", description="Zeigt alle Rollen mit Icon und Priorität an")
 @app_commands.checks.has_permissions(administrator=True)
@@ -952,5 +974,109 @@ async def test(interaction: discord.Interaction):
     view = discord.ui.View()
     view.add_item(discord.ui.Button(label="Test"))
     await interaction.response.send_message("Test", view=view)        
+
+@tree.command(name="set_company_role", description="Setze die Company Rolle")
+@app_commands.checks.has_permissions(administrator=True)
+async def set_company_role(interaction: discord.Interaction, role: discord.Role, str_in_spreadsheet: str):
+    roles = await spreadsheet_role_settings_manager.load()
+    if "company_role" not in roles:
+        roles["company_role"] = {}
+
+    roles["company_role"][role.id] = str_in_spreadsheet
+    await spreadsheet_role_settings_manager.save(roles)
+    await interaction.response.send_message(f"Company Rolle wurde erfolgreich gesetzt!", ephemeral=True)
+
+@tree.command(name="remove_company_role", description="Entferne die Company Rolle")
+@app_commands.checks.has_permissions(administrator=True)
+async def remove_company_role(interaction: discord.Interaction, role: discord.Role):
+    roles = await spreadsheet_role_settings_manager.load()
+    if "company_role" not in roles:
+        roles["company_role"] = {}
+
+    if role.id in roles["company_role"]:
+        del roles["company_role"][role.id]
+        await spreadsheet_role_settings_manager.save(roles)
+        await interaction.response.send_message(f"Company Rolle wurde erfolgreich entfernt!", ephemeral=True)
+    else:
+        await interaction.response.send_message(f"Company Rolle nicht gefunden!", ephemeral=True)
+
+@tree.command(name="list_company_roles", description="Liste alle Company Rollen")
+@app_commands.checks.has_permissions(administrator=True)
+async def list_company_roles(interaction: discord.Interaction):
+    roles = await spreadsheet_role_settings_manager.load()
+    if "company_role" not in roles:
+        roles["company_role"] = {}
+
+    if not roles["company_role"]:
+        await interaction.response.send_message("Es sind keine Company Rollen vorhanden.", ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title="Company Rollen",
+        description="Konfigurierte Company Rollen:",
+        color=discord.Color.blue()
+    )
+    for role_id, str_in_spreadsheet in roles["company_role"].items():
+        role_obj = interaction.guild.get_role(int(role_id))
+        role_name = role_obj.name if role_obj else f"Unbekannte Rolle ({role_id})"
+        embed.add_field(name=role_name, value=f"- In Spreadsheet: {str_in_spreadsheet}", inline=False)
+
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@tree.command(name="set_class_role", description="Setze die Class Rolle")
+@app_commands.checks.has_permissions(administrator=True)
+async def set_class_role(interaction: discord.Interaction, role: discord.Role, str_in_spreadsheet: str):
+    roles = await spreadsheet_role_settings_manager.load()
+    if "class_role" not in roles:
+        roles["class_role"] = {}
+
+    roles["class_role"][role.id] = str_in_spreadsheet
+    await spreadsheet_role_settings_manager.save(roles)
+    await interaction.response.send_message(f"Class Rolle wurde erfolgreich gesetzt!", ephemeral=True)
+
+@tree.command(name="remove_class_role", description="Entferne die Class Rolle")
+@app_commands.checks.has_permissions(administrator=True)
+async def remove_class_role(interaction: discord.Interaction, role: discord.Role):
+    roles = await spreadsheet_role_settings_manager.load()
+    if "class_role" not in roles:
+        roles["class_role"] = {}
+
+    if role.id in roles["class_role"]:
+        del roles["class_role"][role.id]
+        await spreadsheet_role_settings_manager.save(roles)
+        await interaction.response.send_message(f"Class Rolle wurde erfolgreich entfernt!", ephemeral=True)
+    else:
+        await interaction.response.send_message(f"Class Rolle nicht gefunden!", ephemeral=True)
+
+@tree.command(name="list_class_roles", description="Liste alle Class Rollen")
+@app_commands.checks.has_permissions(administrator=True)
+async def list_class_roles(interaction: discord.Interaction):
+    roles = await spreadsheet_role_settings_manager.load()
+    if "class_role" not in roles:
+        roles["class_role"] = {}
+
+    if not roles["class_role"]:
+        await interaction.response.send_message("Es sind keine Class Rollen vorhanden.", ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title="Class Rollen",
+        description="Konfigurierte Class Rollen:",
+        color=discord.Color.blue()
+    )
+    for role_id, str_in_spreadsheet in roles["class_role"].items():
+        role_obj = interaction.guild.get_role(int(role_id))
+        role_name = role_obj.name if role_obj else f"Unbekannte Rolle ({role_id})"
+        embed.add_field(name=role_name, value=f"- In Spreadsheet: {str_in_spreadsheet}", inline=False)
+
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@tree.command(name="set_document", description="Setze das Spreadsheet Dokument")
+@app_commands.checks.has_permissions(administrator=True)
+async def set_document(interaction: discord.Interaction, document_id: str):
+    roles = await spreadsheet_role_settings_manager.load()
+    roles["document_id"] = document_id
+    await spreadsheet_role_settings_manager.save(roles)
+    await interaction.response.send_message(f"Document wurde erfolgreich gesetzt!", ephemeral=True)
 
 bot.run(DISCORD_TOKEN)
