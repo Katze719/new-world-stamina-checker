@@ -19,6 +19,8 @@ def find_free_cell_in_column(column: list):
             return i + 1 + OFFSET
     return len(column) + 1 + OFFSET
 
+AUSNAHMEN = ["Lady Lilian"]
+
 async def update_member(client: gspread_asyncio.AsyncioGspreadClientManager, member: discord.Member, parse_display_name: callable, spread_settings: jsonFileManager.JsonFileManager):
 
     # check if member has a company role
@@ -58,6 +60,8 @@ async def update_member(client: gspread_asyncio.AsyncioGspreadClientManager, mem
     
     member_name = full_parse(member)
     
+    if member_name in AUSNAHMEN:
+        return
 
     # Open the worksheet
     auth = await client.authorize()
@@ -98,7 +102,11 @@ async def update_member(client: gspread_asyncio.AsyncioGspreadClientManager, mem
     for i, cell in enumerate(A_col):
         if cell == "":
             continue
-        if cell not in [full_parse(member) for member in member.guild.members]:
+
+        # create member list with full parsed names that have at least one company_role or class_role
+        member_list = [full_parse(member) for member in member.guild.members if get_company(member) is not None or any([str(role.id) in spreadsheet_role_settings["class_role"] for role in member.roles])]
+
+        if cell not in member_list:
             # write empty cells from A to L
             for j in range(12):
                 await sheet.update_acell(f"{chr(ord('A') + j)}{i + OFFSET + 1}", "")
