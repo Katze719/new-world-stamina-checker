@@ -166,7 +166,11 @@ async def _sort_member(client: gspread_asyncio.AsyncioGspreadClientManager, spre
             })
     
     # Execute batch update
-    await sheet.batch_update(batch_update, value_input_option=gspread.utils.ValueInputOption.raw)
+    await sheet.batch_update(batch_update, value_input_option=gspread.utils.ValueInputOption.user_entered)
+
+    # Update column A with raw input option
+    column_a_update = [{'range': f"A{i}", 'values': [[row[0]]]} for i, row in enumerate(sorted_values, start=10)]
+    await sheet.batch_update(column_a_update, value_input_option=gspread.utils.ValueInputOption.raw)
 
 async def sort_member(client: gspread_asyncio.AsyncioGspreadClientManager, spread_settings: jsonFileManager.JsonFileManager):
     async with spreadsheet_member_update:
