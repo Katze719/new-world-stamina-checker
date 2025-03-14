@@ -143,8 +143,30 @@ async def _sort_member(client: gspread_asyncio.AsyncioGspreadClientManager, spre
     worksheet = await auth.open(spreadsheet_role_settings["document_id"])
     sheet = await worksheet.worksheet("Memberliste")
     
-    # sort by class role and company role
+    # Sort by class role and company role
     await sheet.sort([(3, 'asc'), (2, 'asc'), (1, 'asc')], range='A10:L114')
+
+    # Check if A10 is empty
+    cell_A10 = (await sheet.acell('A10')).value
+    if not cell_A10:
+        # Get the values from A11:L114
+        values = await sheet.get_values('A11:L114')
+        # Prepare batch update to move values one row up
+        batch_update = []
+        for i, row in enumerate(values, start=10):
+            for j, value in enumerate(row):
+                batch_update.append({
+                    'range': f"{chr(ord('A') + j)}{i}",
+                    'values': [[value]]
+                })
+        # Clear the last row
+        for j in range(12):
+            batch_update.append({
+                'range': f"{chr(ord('A') + j)}114",
+                'values': [[""]]
+            })
+        # Execute batch update
+        await sheet.batch_update(batch_update, value_input_option=gspread.utils.ValueInputOption.raw)
 
 async def sort_member(client: gspread_asyncio.AsyncioGspreadClientManager, spread_settings: jsonFileManager.JsonFileManager):
     async with spreadsheet_member_update:
