@@ -159,11 +159,10 @@ async def _sort_member(client: gspread_asyncio.AsyncioGspreadClientManager, spre
     # Prepare batch update
     batch_update = []
     for i, row in enumerate(sorted_values, start=10):
-        for j, value in enumerate(row):
-            batch_update.append({
-                'range': f"{chr(ord('A') + j)}{i}",
-                'values': [[value]]
-            })
+        batch_update.append({
+            'range': f"A{i}:L{i}",
+            'values': [row]
+        })
     
     # Execute batch update
     await sheet.batch_update(batch_update, value_input_option=gspread.utils.ValueInputOption.user_entered)
