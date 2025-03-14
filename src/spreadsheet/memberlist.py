@@ -148,7 +148,7 @@ async def _sort_member(client: gspread_asyncio.AsyncioGspreadClientManager, spre
 
     # Check if A10 is empty
     cell_A10 = (await sheet.acell('A10')).value
-    if not cell_A10:
+    while not cell_A10:
         # Get the values from A11:L114
         values = await sheet.get_values('A11:L114')
         # Prepare batch update to move values one row up
@@ -167,6 +167,7 @@ async def _sort_member(client: gspread_asyncio.AsyncioGspreadClientManager, spre
             })
         # Execute batch update
         await sheet.batch_update(batch_update, value_input_option=gspread.utils.ValueInputOption.raw)
+        cell_A10 = (await sheet.acell('A10')).value
 
 async def sort_member(client: gspread_asyncio.AsyncioGspreadClientManager, spread_settings: jsonFileManager.JsonFileManager):
     async with spreadsheet_member_update:
