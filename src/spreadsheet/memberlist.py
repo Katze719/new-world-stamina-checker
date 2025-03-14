@@ -144,7 +144,7 @@ async def _sort_member(client: gspread_asyncio.AsyncioGspreadClientManager, spre
     sheet = await worksheet.worksheet("Memberliste")
     
     # Sort by class role and company role
-    await sheet.sort([(3, 'asc'), (2, 'asc'), (1, 'asc')], range='A10:L114')
+    await sheet.sort([(3, 'des'), (2, 'asc'), (1, 'asc')], range='A10:L114')
 
 async def sort_member(client: gspread_asyncio.AsyncioGspreadClientManager, spread_settings: jsonFileManager.JsonFileManager):
     async with spreadsheet_member_update:
