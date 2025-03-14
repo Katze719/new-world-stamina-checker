@@ -592,6 +592,7 @@ async def on_member_update(before, after: discord.Member):
     """
     await update_member_nickname(after)
     await update_member_in_spreadsheet(after)
+    await spreadsheet.memberlist.sort_member(spreadsheet_acc, spreadsheet_role_settings_manager)
 
 @tree.command(name="set_role", description="Setze Icon und/oder Priorität für eine Rolle")
 @app_commands.describe(
@@ -683,6 +684,7 @@ async def update_all_users(interaction: discord.Interaction):
             await update_member_nickname(member)
             await update_member_in_spreadsheet(member)
 
+    await spreadsheet.memberlist.sort_member(spreadsheet_acc, spreadsheet_role_settings_manager)
     await interaction.edit_original_response(content="Nutzer wurden Aktualisiert!")
     
 @tree.command(name="list_roles", description="Zeigt alle Rollen mit Icon und Priorität an")
@@ -1078,5 +1080,12 @@ async def set_document(interaction: discord.Interaction, document_id: str):
     roles["document_id"] = document_id
     await spreadsheet_role_settings_manager.save(roles)
     await interaction.response.send_message(f"Document wurde erfolgreich gesetzt!", ephemeral=True)
+
+@tree.command(name="sort_spreadsheet", description="Sortiere das Spreadsheet")
+@app_commands.checks.has_permissions(administrator=True)
+async def sort_spreadsheet(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    await spreadsheet.memberlist.sort_member(spreadsheet_acc, spreadsheet_role_settings_manager)
+    await interaction.edit_original_response(content=f"Spreadsheet wurde erfolgreich sortiert!")
 
 bot.run(DISCORD_TOKEN)

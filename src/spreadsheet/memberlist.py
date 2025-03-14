@@ -4,6 +4,9 @@ import gspread
 import discord
 from enum import Enum
 import jsonFileManager
+import asyncio
+
+spreadsheet_member_update = asyncio.Lock()
 
 class Column(Enum):
     NAME = 'A'
@@ -19,9 +22,9 @@ def find_free_cell_in_column(column: list):
             return i + 1 + OFFSET
     return len(column) + 1 + OFFSET
 
-AUSNAHMEN = ["Lady Lilian"]
+AUSNAHMEN = ["Lady Lilian", "DS Gabriel"]
 
-async def update_member(client: gspread_asyncio.AsyncioGspreadClientManager, member: discord.Member, parse_display_name: callable, spread_settings: jsonFileManager.JsonFileManager):
+async def _update_member(client: gspread_asyncio.AsyncioGspreadClientManager, member: discord.Member, parse_display_name: callable, spread_settings: jsonFileManager.JsonFileManager):
 
     # check if member has a company role
     spreadsheet_role_settings = await spread_settings.load()
@@ -66,7 +69,7 @@ async def update_member(client: gspread_asyncio.AsyncioGspreadClientManager, mem
     # Open the worksheet
     auth = await client.authorize()
     worksheet = await auth.open(spreadsheet_role_settings["document_id"])
-    sheet = await worksheet.get_worksheet(0)
+    sheet = await worksheet.worksheet("Memberliste")
 
     # Get the column A
     A_col = await sheet.get_values("A1:A114", major_dimension="COLUMNS")
@@ -81,32 +84,68 @@ async def update_member(client: gspread_asyncio.AsyncioGspreadClientManager, mem
         row_number = A_col.index(member_name) + 1 + OFFSET
     else:
         row_number = find_free_cell_in_column(A_col)
-        # update cell NAME 
-        c = await sheet.acell(f"{Column.NAME.value}{row_number}")
-        c.value = member_name
-        await sheet.update_cells([c], value_input_option=gspread.utils.ValueInputOption.raw)
 
-    # update cell COMPANY
-    await sheet.update_acell(f"{Column.COMPANY.value}{row_number}", company)
+    # Prepare batch update
+    batch_update = []
 
-    # set class role
+    # Update cell NAME
+    batch_update.append({
+        'range': f"{Column.NAME.value}{row_number}",
+        'values': [[member_name]]
+    })
+
+    # Update cell COMPANY
+    batch_update.append({
+        'range': f"{Column.COMPANY.value}{row_number}",
+        'values': [[company]]
+    })
+
+    # Set class role
+    class_role = "Unbekannt"
     for user_role_id in user_role_ids:
         if str(user_role_id) in spreadsheet_role_settings["class_role"]:
             class_role = spreadsheet_role_settings["class_role"][str(user_role_id)]
-            await sheet.update_acell(f"{Column.CLASS.value}{row_number}", class_role)
             break
-    else:
-        await sheet.update_acell(f"{Column.CLASS.value}{row_number}", "Unbekannt")
 
-    # delete users from list that are not in discord
+    batch_update.append({
+        'range': f"{Column.CLASS.value}{row_number}",
+        'values': [[class_role]]
+    })
+
+    # Execute batch update
+    await sheet.batch_update(batch_update, value_input_option=gspread.utils.ValueInputOption.raw)
+
+    # Delete users from list that are not in discord
+    member_list = [full_parse(member) for member in member.guild.members if get_company(member) is not None or any([str(role.id) in spreadsheet_role_settings["class_role"] for role in member.roles])]
+    delete_batch_update = []
     for i, cell in enumerate(A_col):
-        if cell == "":
-            continue
-
-        # create member list with full parsed names that have at least one company_role or class_role
-        member_list = [full_parse(member) for member in member.guild.members if get_company(member) is not None or any([str(role.id) in spreadsheet_role_settings["class_role"] for role in member.roles])]
-
-        if cell not in member_list:
-            # write empty cells from A to L
+        if cell and cell not in member_list:
             for j in range(12):
-                await sheet.update_acell(f"{chr(ord('A') + j)}{i + OFFSET + 1}", "")
+                delete_batch_update.append({
+                    'range': f"{chr(ord('A') + j)}{i + OFFSET + 1}",
+                    'values': [[""]]
+                })
+
+    if delete_batch_update:
+        await sheet.batch_update(delete_batch_update, value_input_option=gspread.utils.ValueInputOption.raw)
+
+async def update_member(client: gspread_asyncio.AsyncioGspreadClientManager, member: discord.Member, parse_display_name: callable, spread_settings: jsonFileManager.JsonFileManager):
+    async with spreadsheet_member_update:
+        await _update_member(client, member, parse_display_name, spread_settings)
+
+async def _sort_member(client: gspread_asyncio.AsyncioGspreadClientManager, spread_settings: jsonFileManager.JsonFileManager):
+    """
+    Sort member by class role and company role
+    """
+    # Open the worksheet
+    auth = await client.authorize()
+    spreadsheet_role_settings = await spread_settings.load()
+    worksheet = await auth.open(spreadsheet_role_settings["document_id"])
+    sheet = await worksheet.worksheet("Memberliste")
+    
+    # sort by class role and company role
+    await sheet.sort([(3, 'asc'), (2, 'asc'), (1, 'asc')], range='A10:L114')
+
+async def sort_member(client: gspread_asyncio.AsyncioGspreadClientManager, spread_settings: jsonFileManager.JsonFileManager):
+    async with spreadsheet_member_update:
+        await _sort_member(client, spread_settings)
