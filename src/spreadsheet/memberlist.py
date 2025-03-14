@@ -135,7 +135,7 @@ async def update_member(client: gspread_asyncio.AsyncioGspreadClientManager, mem
 
 async def _sort_member(client: gspread_asyncio.AsyncioGspreadClientManager, spread_settings: jsonFileManager.JsonFileManager):
     """
-    Sort member by class role and company role
+    Sort member by class role and company role, moving empty rows to the bottom.
     """
     # Open the worksheet
     auth = await client.authorize()
@@ -143,31 +143,30 @@ async def _sort_member(client: gspread_asyncio.AsyncioGspreadClientManager, spre
     worksheet = await auth.open(spreadsheet_role_settings["document_id"])
     sheet = await worksheet.worksheet("Memberliste")
     
-    # Sort by class role and company role
-    await sheet.sort([(3, 'asc'), (2, 'asc'), (1, 'asc')], range='A10:L114')
-
-    # Check if A10 is empty
-    cell_A10 = (await sheet.acell('A10')).value
-    while not cell_A10:
-        # Get the values from A11:L114
-        values = await sheet.get_values('A11:L114')
-        # Prepare batch update to move values one row up
-        batch_update = []
-        for i, row in enumerate(values, start=10):
-            for j, value in enumerate(row):
-                batch_update.append({
-                    'range': f"{chr(ord('A') + j)}{i}",
-                    'values': [[value]]
-                })
-        # Clear the last row
-        for j in range(12):
+    # Get all values from A10:L114
+    values = await sheet.get_values('A10:L114')
+    
+    # Separate non-empty and empty rows
+    non_empty_rows = [row for row in values if any(cell for cell in row)]
+    empty_rows = [row for row in values if not any(cell for cell in row)]
+    
+    # Sort non-empty rows by class role and company role
+    non_empty_rows.sort(key=lambda row: (row[2], row[1], row[0]))
+    
+    # Combine sorted non-empty rows with empty rows at the bottom
+    sorted_values = non_empty_rows + empty_rows
+    
+    # Prepare batch update
+    batch_update = []
+    for i, row in enumerate(sorted_values, start=10):
+        for j, value in enumerate(row):
             batch_update.append({
-                'range': f"{chr(ord('A') + j)}114",
-                'values': [[""]]
+                'range': f"{chr(ord('A') + j)}{i}",
+                'values': [[value]]
             })
-        # Execute batch update
-        await sheet.batch_update(batch_update, value_input_option=gspread.utils.ValueInputOption.raw)
-        cell_A10 = (await sheet.acell('A10')).value
+    
+    # Execute batch update
+    await sheet.batch_update(batch_update, value_input_option=gspread.utils.ValueInputOption.raw)
 
 async def sort_member(client: gspread_asyncio.AsyncioGspreadClientManager, spread_settings: jsonFileManager.JsonFileManager):
     async with spreadsheet_member_update:
