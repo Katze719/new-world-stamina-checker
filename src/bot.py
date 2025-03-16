@@ -1107,22 +1107,23 @@ async def post_icons_to_channel(interaction: discord.Interaction):
 
         role_settings = role_name_update_settings_cache.get("role_settings", {})
         icons_with_roles = []
+
+        # Sammle die Daten inklusive prio, Icon und Rollennamen
         for role_id, settings in role_settings.items():
             role = interaction.guild.get_role(int(role_id))
             if role:
                 icon = settings.get("icon", "")
-                icons_with_roles.append((icon, role.name))
+                prio = settings.get("prio", 0)
+                try:
+                    prio = int(prio)
+                except ValueError:
+                    prio = 0
+                icons_with_roles.append((prio, icon, role.name))
 
-        # Berechne die maximale Länge inkl. Klammern
-        max_icon_length = max(len(f"[{icon}]") for icon, _ in icons_with_roles)
-        # Definiere ein zusätzliches Padding, sodass das Feld insgesamt eine feste Breite hat
-        padding = 1  # Hier: max. Länge + 4 ergibt 10+4 = 14, Bindestrich startet dann bei Index 14+1 = 15
-        field_width = max_icon_length + padding
+        # Sortiere die Liste nach prio (aufsteigend)
+        icons_with_roles.sort(key=lambda x: x[0])
 
-        msg = ''.join(
-            f"{f'[{icon}]':<{field_width}}- {role_name}\n"
-            for icon, role_name in icons_with_roles if icon
-        )
+        msg = ''.join(f"[{icon}] - {role_name}\n" for icon, role_name in icons_with_roles if icon)
 
         msg = f"## Aktuelle Symbolbedeutung!\n\n{msg}"
 
