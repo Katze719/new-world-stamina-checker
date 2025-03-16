@@ -1123,7 +1123,7 @@ async def post_icons_to_channel(interaction: discord.Interaction):
         # Sortiere die Liste nach prio (aufsteigend)
         icons_with_roles.sort(key=lambda x: x[0])
 
-        msg = ''.join(f"[{icon}] - {role_name}\n" for icon, role_name in icons_with_roles if icon)
+        msg = ''.join(f"[{icon}] - {role_name}\n" for icon, role_name , prio in icons_with_roles if icon)
 
         msg = f"## Aktuelle Symbolbedeutung!\n\n{msg}"
 
