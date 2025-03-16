@@ -775,6 +775,7 @@ class RoleSettingsInput(discord.ui.Modal, title="Rollen Einstellungen"):
                 await interaction.response.send_message(f"Einstellungen für Rolle **{self.role_name}** wurden aktualisiert.", ephemeral=True)
                 guild = interaction.guild
                 if guild:
+                    await post_icons_to_channel(interaction)
                     for member in guild.members:
                         await update_member_nickname(member)
                 return
@@ -1087,5 +1088,53 @@ async def sort_spreadsheet(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     await spreadsheet.memberlist.sort_member(spreadsheet_acc, spreadsheet_role_settings_manager)
     await interaction.edit_original_response(content=f"Spreadsheet wurde erfolgreich sortiert!")
+
+@tree.command(name="set_icon_post_channel", description="Setze den Channel für Icon Posts")
+@app_commands.checks.has_permissions(administrator=True)
+async def set_icon_post_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    channels = await gp_channel_manager.load()
+    channels["icon_post_channel"] = channel.id
+    await gp_channel_manager.save(channels)
+    await interaction.response.send_message(f"Icon Post Channel wurde erfolgreich gesetzt!", ephemeral=True)
+
+async def post_icons_to_channel(interaction: discord.Interaction):
+    print("bitch post")
+    global role_name_update_settings_cache
+    channels = await gp_channel_manager.load()
+    channel_id = channels.get("icon_post_channel", None)
+    if channel_id:
+        channel = bot.get_channel(channel_id)
+
+        role_settings = role_name_update_settings_cache.get("role_settings", {})
+        icons_with_roles = []
+        for role_id, settings in role_settings.items():
+            role = interaction.guild.get_role(int(role_id))
+            if role:
+                icon = settings.get("icon", "")
+                icons_with_roles.append((icon, role.name))
+
+        # Berechne die maximale Länge inkl. Klammern
+        max_icon_length = max(len(f"[{icon}]") for icon, _ in icons_with_roles)
+        # Definiere ein zusätzliches Padding, sodass das Feld insgesamt eine feste Breite hat
+        padding = 1  # Hier: max. Länge + 4 ergibt 10+4 = 14, Bindestrich startet dann bei Index 14+1 = 15
+        field_width = max_icon_length + padding
+
+        msg = ''.join(
+            f"{f'[{icon}]':<{field_width}}- {role_name}\n"
+            for icon, role_name in icons_with_roles
+        )
+
+        msg = f"## Aktuelle Symbolbedeutung!\n\n```txt\n{msg}```"
+
+        # look if there is a post sent by the bot
+        async for message in channel.history(limit=1):
+            if message.author == bot.user:
+                # format the icons like this: [icon] - name of role and next line
+
+                await message.edit(content=f"{msg}")
+                return
+    
+        await channel.send(f"{msg}")
+        return
 
 bot.run(DISCORD_TOKEN)
