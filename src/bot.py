@@ -1121,10 +1121,10 @@ async def post_icons_to_channel(interaction: discord.Interaction):
 
         msg = ''.join(
             f"{f'[{icon}]':<{field_width}}- {role_name}\n"
-            for icon, role_name in icons_with_roles
+            for icon, role_name in icons_with_roles if icon
         )
 
-        msg = f"## Aktuelle Symbolbedeutung!\n\n```txt\n{msg}```"
+        msg = f"## Aktuelle Symbolbedeutung!\n\n{msg}"
 
         # look if there is a post sent by the bot
         async for message in channel.history(limit=1):
