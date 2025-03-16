@@ -1121,7 +1121,7 @@ async def post_icons_to_channel(interaction: discord.Interaction):
                 icons_with_roles.append((prio, icon, role.name))
 
         # Sortiere die Liste nach prio (aufsteigend)
-        icons_with_roles.sort(key=lambda x: x[0])
+        icons_with_roles.sort(key=lambda x: x[0], reverse=True)
 
         msg = ''.join(f"[{icon}] - {role_name}\n" for prio, icon , role_name in icons_with_roles if icon)
 
