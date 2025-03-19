@@ -127,7 +127,7 @@ async def stats(client: gspread_asyncio.AsyncioGspreadClientManager, interaction
 
             last_month_quota = await last_month_sheet.get_values(f"{Column.QUOTA_RACES.value}{last_month_row}:{Column.QUOTA_VOD.value}{last_month_row}", major_dimension="ROWS")
             last_month_quota = last_month_quota[0]
-            embed.add_field(name=f"{last_month_name} {last_month_year}", value=f"- **Races**: {last_month_quota[0]}\n- **War**: {last_month_quota[1]}\n- **Raidhelper**: {last_month_quota[2]}\n- **VOD**: {last_month_quota[3]}", inline=False)
+            embed.add_field(name=f"{last_month_name} {last_month_year}", value=f"- **Races**: {last_month_quota[0]}\n- **Wars**: {last_month_quota[1]}\n- **Raidhelper**: {last_month_quota[2]}\n- **VOD**: {last_month_quota[3]}", inline=False)
         else:
             embed.add_field(
                 name=f"{last_month_name} {last_month_year}",
