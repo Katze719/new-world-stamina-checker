@@ -12,6 +12,8 @@ import numpy as np
 import colorCheck
 import spreadsheet.authenticate
 import spreadsheet.memberlist
+import spreadsheet.payoutlist
+import spreadsheet.stats
 from videoAnalyzer import VideoAnalyzer
 from collections import deque
 from google import genai
@@ -974,9 +976,37 @@ async def check_channel():
 
 @tree.command(name="test", description="Test Command")
 async def test(interaction: discord.Interaction):
-    view = discord.ui.View()
-    view.add_item(discord.ui.Button(label="Test"))
-    await interaction.response.send_message("Test", view=view)        
+    pass
+    await interaction.response.defer(ephemeral=True)
+    # await spreadsheet.payoutlist._update_payoutlist(spreadsheet_acc, spreadsheet_role_settings_manager)
+    # await interaction.edit_original_response(content="Nutzer wurden Aktualisiert!")
+
+    # def parse_name(member : discord.Member):
+    #     pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
+    #     regex = pattern_to_regex(pattern)
+    #     match = regex.match(member.display_name)
+    #     if match:
+    #         return match.group("name").strip()
+    #     else:
+    #         return member.display_name
+
+    # await spreadsheet.stats.stats(spreadsheet_acc, interaction, parse_name, spreadsheet_role_settings_manager)
+
+@tree.command(name="stats", description="Zeigt deine Stats aus dem google sheet")
+async def stats(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
+    def parse_name(member : discord.Member):
+        pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
+        regex = pattern_to_regex(pattern)
+        match = regex.match(member.display_name)
+        if match:
+            return match.group("name").strip()
+        else:
+            return member.display_name
+
+    await spreadsheet.stats.stats(spreadsheet_acc, interaction, parse_name, spreadsheet_role_settings_manager)
+
 
 @tree.command(name="set_company_role", description="Setze die Company Rolle")
 @app_commands.checks.has_permissions(administrator=True)

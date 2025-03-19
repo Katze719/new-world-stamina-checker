@@ -14,6 +14,10 @@ RUN apt-get update && apt-get install -y \
     libsm6 \
     ffmpeg \
     git-lfs \
+    locales \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install poetry
+
+RUN echo "de_DE.UTF-8 UTF-8" >> /etc/locale.gen; \
+    locale-gen

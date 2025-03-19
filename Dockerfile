@@ -14,7 +14,11 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     libsm6 \
     ffmpeg \
+    locales \
     && rm -rf /var/lib/apt/lists/*
+
+RUN echo "de_DE.UTF-8 UTF-8" >> /etc/locale.gen; \
+    locale-gen
 
 # Setze das Arbeitsverzeichnis
 WORKDIR /app
