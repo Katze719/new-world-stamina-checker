@@ -76,6 +76,7 @@ async def stats(client: gspread_asyncio.AsyncioGspreadClientManager, interaction
         member_name = member_name.split(" I ")[0]
         member_name = member_name.replace("🏮 ", "")
         member_name = member_name.replace("🏮", "")
+        member_name = member_name.replace(" ", "")
         return member_name
     
     member_name = full_parse(interaction.user)
@@ -102,7 +103,7 @@ async def stats(client: gspread_asyncio.AsyncioGspreadClientManager, interaction
     A_col = await sheet.get_values(users, major_dimension="COLUMNS")
     A_col = A_col[0]
 
-    print(A_col)
+    # print(A_col)
 
     embed = discord.Embed(title=f"Stats", color=discord.Color.blurple())
     embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.avatar.url)
