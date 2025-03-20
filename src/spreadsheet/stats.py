@@ -109,7 +109,7 @@ async def stats(client: gspread_asyncio.AsyncioGspreadClientManager, interaction
     embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.avatar.url)
 
     if member_name not in A_col:
-        embed.add_field(name="Teilnahme", value="Du hast diesen Monat noch nicht an einem War teilgenommen.", inline=False)
+        embed.add_field(name="Teilnahme", value="Du wurdest nicht inder Payoutliste gefunden.", inline=False)
         await interaction.edit_original_response(embed=embed)
         return
     else:
@@ -132,7 +132,7 @@ async def stats(client: gspread_asyncio.AsyncioGspreadClientManager, interaction
         else:
             embed.add_field(
                 name=f"{last_month_name} {last_month_year}",
-                value="Im vergangenen Monat hast du leider nicht an einem War teilgenommen.\nAufgrund von Änderungen (Breaking Changes) in der Payoutliste können der Februar sowie alle älteren Monate momentan nicht angezeigt werden.\nWir bitten um dein Verständnis.",
+                value="Du wurdest nicht inder Payoutliste gefunden.\nAufgrund von Änderungen (Breaking Changes) in der Payoutliste können der Februar sowie alle älteren Monate momentan nicht angezeigt werden.\nWir bitten um dein Verständnis.",
                 inline=False
             )
 
