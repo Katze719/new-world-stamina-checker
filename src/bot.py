@@ -14,6 +14,7 @@ import spreadsheet.authenticate
 import spreadsheet.memberlist
 import spreadsheet.payoutlist
 import spreadsheet.stats
+import spreadsheet.urlaub
 from videoAnalyzer import VideoAnalyzer
 from collections import deque
 from google import genai
@@ -62,11 +63,13 @@ VOD_CHANNELS_FILE_PATH = "./vod_channels.json"
 ROLE_NAME_UPDATE_SETTINGS_PATH = "./role_name_settings.json"
 GP_CHANNEL_IDS_FILE = "./gp_channel_ids.json"
 SPREADSHEET_ROLE_SETTINGS_PATH = "./spreadsheet_role_settings.json"
+WRITTEN_RAIDHELPERS_FILE = "./written_raidhelpers.json"
 
 vod_channel_manager = jsonFileManager.JsonFileManager(VOD_CHANNELS_FILE_PATH, ensure_hidden_attribute)
 settings_manager = jsonFileManager.JsonFileManager(ROLE_NAME_UPDATE_SETTINGS_PATH)
 gp_channel_manager = jsonFileManager.JsonFileManager(GP_CHANNEL_IDS_FILE)
 spreadsheet_role_settings_manager = jsonFileManager.JsonFileManager(SPREADSHEET_ROLE_SETTINGS_PATH)
+written_raidhelpers_manager = jsonFileManager.JsonFileManager(WRITTEN_RAIDHELPERS_FILE)
 
 role_name_update_settings_cache = {}
 
@@ -976,9 +979,18 @@ async def check_channel():
 
 @tree.command(name="test", description="Test Command")
 async def test(interaction: discord.Interaction):
-    pass
     await interaction.response.defer(ephemeral=True)
-    # await spreadsheet.payoutlist._update_payoutlist(spreadsheet_acc, spreadsheet_role_settings_manager)
+
+    # def parse_name(member : discord.Member):
+    #     pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
+    #     regex = pattern_to_regex(pattern)
+    #     match = regex.match(member.display_name)
+    #     if match:
+    #         return match.group("name").strip()
+    #     else:
+    #         return member.display_name
+
+    # await spreadsheet.payoutlist._update_payoutlist(bot, spreadsheet_acc, parse_name, spreadsheet_role_settings_manager, gp_channel_manager)
     # await interaction.edit_original_response(content="Nutzer wurden Aktualisiert!")
 
     # def parse_name(member : discord.Member):
@@ -1128,7 +1140,6 @@ async def set_icon_post_channel(interaction: discord.Interaction, channel: disco
     await interaction.response.send_message(f"Icon Post Channel wurde erfolgreich gesetzt!", ephemeral=True)
 
 async def post_icons_to_channel(interaction: discord.Interaction):
-    print("bitch post")
     global role_name_update_settings_cache
     channels = await gp_channel_manager.load()
     channel_id = channels.get("icon_post_channel", None)
@@ -1167,5 +1178,55 @@ async def post_icons_to_channel(interaction: discord.Interaction):
     
         await channel.send(f"{msg}")
         return
+
+@tree.command(name="set_channel_raidhelper_race", description="Setze den Channel für Raidhelper Races")
+@app_commands.checks.has_permissions(administrator=True)
+async def set_channel_raidhelper_race(interaction: discord.Interaction, channel: discord.TextChannel):
+    channels = await gp_channel_manager.load()
+    channels["raidhelper_race"] = channel.id
+    await gp_channel_manager.save(channels)
+    await interaction.response.send_message(f"Raidhelper Channel Set for Races", ephemeral=True)
+
+@tree.command(name="set_channel_raidhelper_war", description="Setze den Channel für Raidhelper_war")
+@app_commands.checks.has_permissions(administrator=True)
+async def set_channel_raidhelper_war(interaction: discord.Interaction, channel: discord.TextChannel):
+    channels = await gp_channel_manager.load()
+    channels["raidhelper_war"] = channel.id
+    await gp_channel_manager.save(channels)
+    await interaction.response.send_message(f"Raidhelper Channel Set for War", ephemeral=True)
+
+@tree.command(name="remove_channel_raidhelper_race", description="Entferne den Channelfür Raidhelper")
+@app_commands.checks.has_permissions(administrator=True)
+async def remove_channel_raidhelper_race(interaction: discord.Interaction):
+    channels = await gp_channel_manager.load()
+    channels["raidhelper_race"] = None
+    await gp_channel_manager.save(channels)
+    await interaction.response.send_message(f"Raidhelper Channel Removed", ephemeral=True)
+
+@tree.command(name="remove_channel_raidhelper_war", description="Entferne den Channelfür Raidhelper")
+@app_commands.checks.has_permissions(administrator=True)
+async def remove_channel_raidhelper_war(interaction: discord.Interaction):
+    channels = await gp_channel_manager.load()
+    channels["raidhelper_war"] = None
+    await gp_channel_manager.save(channels)
+    await interaction.response.send_message(f"Raidhelper Channel Removed", ephemeral=True)
+
+@tree.command(name="abwesenheit", description="Teile uns mit wann du Abwesend bist")
+async def abwesenheit(interaction: discord.Interaction):
+    modal = spreadsheet.urlaub.UrlaubsModal()
+
+    def parse_name(member : discord.Member):
+        pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
+        regex = pattern_to_regex(pattern)
+        match = regex.match(member.display_name)
+        if match:
+            return match.group("name").strip()
+        else:
+            return member.display_name
+        
+    modal.fake_init(spreadsheet_acc, parse_name, spreadsheet_role_settings_manager)
+    await interaction.response.send_modal(modal)
+
+
 
 bot.run(DISCORD_TOKEN)
