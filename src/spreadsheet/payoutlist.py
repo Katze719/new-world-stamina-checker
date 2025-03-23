@@ -94,9 +94,21 @@ async def _update_payoutlist(bot: discord.Client, client: gspread_asyncio.Asynci
         member_name = member_name.replace("🏮", "")
         member_name = member_name.replace(" ", "")
         return member_name
+    
+    def full_parse_specced(member):
+        # Parse the display name
+        member_name = parse_display_name(member)
+
+        # Mach aus namen wie "Dirty Torty | Jan" -> "Dirty Tory"
+        member_name = member_name.split(" | ")[0]
+        member_name = member_name.split(" I ")[0]
+        member_name = member_name.replace("🏮 ", "")
+        member_name = member_name.replace("🏮", "")
+        return member_name
 
     # check if users from sheet are in in discord
     discord_memeber_list = [(full_parse(member), get_company(member)) for member in channel_race.guild.members if get_company(member) is not None]
+    discord_memeber_list_orig_names = [(full_parse_specced(member), get_company(member)) for member in channel_race.guild.members if get_company(member) is not None]
 
     # check if the worksheet exists if not copy the one from the last month
     try:
@@ -179,16 +191,18 @@ async def _update_payoutlist(bot: discord.Client, client: gspread_asyncio.Asynci
                 A_col = A_col[0]
                 A_col = A_col[COLUMN_START_OFFSET:]
 
-                for discord_username, company in discord_memeber_list:
+                for i, member in enumerate(discord_memeber_list):
+                    discord_username, company = member
+                    discord_username_origin = discord_memeber_list_orig_names[i][0]
                     row = find_free_cell_in_column(A_col)
                     if any(discord_username in username for username in raidhelper_usernames):
-                        if discord_username in A_col:
-                            row = A_col.index(discord_username)
+                        if discord_username_origin in A_col:
+                            row = A_col.index(discord_username_origin)
                             await sheet.update_cell(row + 1 + COLUMN_START_OFFSET, column_event, "1")
                         else:  
                             await sheet.update_cell(row, column_event, "1")
-                    if discord_username not in A_col:
-                        await sheet.update_cell(row, 6, discord_username)
+                    if discord_username_origin not in A_col:
+                        await sheet.update_cell(row, 6, discord_username_origin)
                         # stats
                         await sheet.update_cell(row, 1, f'=(ZÄHLENWENNS($L$4:$AAA$4; "*Push*";$L$3:$AAA$3;"*Teilnehmer*";L{row}:AAA{row}; ">0") + ZÄHLENWENNS($L$4:$AAA$4; "*Push*";$L$3:$AAA$3;"*Teilnehmer*";L{row}:AAA{row}; "x"))/$A$5')
                         await sheet.update_cell(row, 2, f'=(ZÄHLENWENNS($L$4:$AAA$4; "*Krieg*";$L$3:$AAA$3;"*Teilnehmer*";L{row}:AAA{row}; ">0") + ZÄHLENWENNS($L$4:$AAA$4; "*Krieg*";$L$3:$AAA$3;"*Teilnehmer*";L{row}:AAA{row}; "x"))/$B$5')
@@ -198,9 +212,9 @@ async def _update_payoutlist(bot: discord.Client, client: gspread_asyncio.Asynci
                         await sheet.update_cell(row, 9, f'=SUMME(K{row}:AAA{row})')
                         await sheet.update_cell(row, 10, f'=I{row}*$J$3')
                         if row - 1 - COLUMN_START_OFFSET < len(A_col):
-                            A_col[row - 1 - COLUMN_START_OFFSET] = discord_username
+                            A_col[row - 1 - COLUMN_START_OFFSET] = discord_username_origin
                         else:
-                            A_col.append(discord_username)
+                            A_col.append(discord_username_origin)
             await raidhelper_id_manager.save(data)
 
 async def update_payoutlist(bot: discord.Client, client: gspread_asyncio.AsyncioGspreadClientManager, parse_display_name: callable, spread_settings: jsonFileManager.JsonFileManager, gp_channel_manager: jsonFileManager.JsonFileManager):
