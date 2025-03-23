@@ -343,7 +343,7 @@ async def on_ready():
     global role_name_update_settings_cache
     role_name_update_settings_cache = await settings_manager.load()
     check_channel.start()
-    check_for_raidhelpers.start()
+    # check_for_raidhelpers.start()
     log.info(f"Bot ist eingeloggt als {bot.user}")
     try:
         synced = await tree.sync()
