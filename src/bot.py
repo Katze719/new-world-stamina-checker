@@ -980,6 +980,7 @@ async def check_channel():
 
 @tasks.loop(minutes=30)
 async def check_for_raidhelpers():
+    log.info("Checking for raid helpers")
     def parse_name(member : discord.Member):
         pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
         regex = pattern_to_regex(pattern)
