@@ -343,6 +343,7 @@ async def on_ready():
     global role_name_update_settings_cache
     role_name_update_settings_cache = await settings_manager.load()
     check_channel.start()
+    check_for_raidhelpers.start()
     log.info(f"Bot ist eingeloggt als {bot.user}")
     try:
         synced = await tree.sync()
@@ -977,6 +978,19 @@ async def check_channel():
             if role:
                 await channel.send(f"{role.mention} ey hier ist mal wieder ziemlich ruhig, wir wollen wachsen wir brauchen Werbung! Jeder darf Werbung machen also abfahrt!")
 
+@tasks.loop(minutes=30)
+async def check_for_raidhelpers():
+    def parse_name(member : discord.Member):
+        pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
+        regex = pattern_to_regex(pattern)
+        match = regex.match(member.display_name)
+        if match:
+            return match.group("name").strip()
+        else:
+            return member.display_name
+
+    await spreadsheet.payoutlist.update_payoutlist(bot, spreadsheet_acc, parse_name, spreadsheet_role_settings_manager, gp_channel_manager)
+
 @tree.command(name="test", description="Test Command")
 async def test(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
@@ -990,8 +1004,8 @@ async def test(interaction: discord.Interaction):
     #     else:
     #         return member.display_name
 
-    # await spreadsheet.payoutlist._update_payoutlist(bot, spreadsheet_acc, parse_name, spreadsheet_role_settings_manager, gp_channel_manager)
-    # await interaction.edit_original_response(content="Nutzer wurden Aktualisiert!")
+    # await spreadsheet.payoutlist.update_payoutlist(bot, spreadsheet_acc, parse_name, spreadsheet_role_settings_manager, gp_channel_manager)
+    await interaction.edit_original_response(content="Nutzer wurden Aktualisiert!")
 
     # def parse_name(member : discord.Member):
     #     pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
@@ -1227,6 +1241,13 @@ async def abwesenheit(interaction: discord.Interaction):
     modal.fake_init(spreadsheet_acc, parse_name, spreadsheet_role_settings_manager)
     await interaction.response.send_modal(modal)
 
+@tree.command(name="set_error_log_channel", description="Setze den Channel für Error Logs")
+@app_commands.checks.has_permissions(administrator=True)
+async def set_error_log_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    channels = await gp_channel_manager.load()
+    channels["error_log_channel"] = channel.id
+    await gp_channel_manager.save(channels)
+    await interaction.response.send_message(f"Error Log Channel wurde erfolgreich gesetzt!", ephemeral=True)
 
 
 bot.run(DISCORD_TOKEN)
