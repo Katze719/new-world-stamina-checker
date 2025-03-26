@@ -52,13 +52,29 @@ Seamlessly integrates with Google Sheets to manage and update:
 - `/changelog`: View the latest changelog entry.
 - `/stats`: Display your stats from the Google Sheet.
 - `/abwesenheit`: Submit your absence period.
-- `/set_role`: Configure icons and priorities for roles.
+- `/set_role <role> <icon> <prio>`: Configure icons and priorities for roles.
+- `/clear_role <role>`: Remove the icon and priority for a role.
 - `/list_roles`: List all roles with their icons and priorities.
-- `/set_pattern`: Set the global nickname pattern.
+- `/set_pattern <pattern>`: Set the global nickname pattern.
 - `/update_all_users`: Update nicknames for all users based on the current pattern.
-- `/set_document`: Set the Google Sheets document ID.
+- `/set_document <document_id>`: Set the Google Sheets document ID.
 - `/sort_spreadsheet`: Sort the spreadsheet by configured rules.
-- `/set_error_log_channel`: Set the channel for error logs.
+- `/set_error_log_channel <channel>`: Set the channel for error logs.
+- `/set_company_role <role> <spreadsheet_value>`: Assign a company role to a spreadsheet value.
+- `/remove_company_role <role>`: Remove a company role.
+- `/list_company_roles`: List all configured company roles.
+- `/set_class_role <role> <spreadsheet_value>`: Assign a class role to a spreadsheet value.
+- `/remove_class_role <role>`: Remove a class role.
+- `/list_class_roles`: List all configured class roles.
+- `/set_channel_raidhelper_race <channel>`: Set the channel for RaidHelper races.
+- `/set_channel_raidhelper_war <channel>`: Set the channel for RaidHelper wars.
+- `/remove_channel_raidhelper_race`: Remove the channel for RaidHelper races.
+- `/remove_channel_raidhelper_war`: Remove the channel for RaidHelper wars.
+- `/watch_this_for_user_extraction`: Add the current channel to the user extraction list.
+- `/remove_this_from_user_extraction`: Remove the current channel from the user extraction list.
+- `/set_check_channel <role>`: Monitor a channel for inactivity and notify a role.
+- `/remove_check_channel`: Stop monitoring a channel for inactivity.
+- `/test`: A test command for debugging purposes.
 
 ---
 
