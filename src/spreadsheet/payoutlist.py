@@ -13,6 +13,7 @@ import requests
 import json
 import traceback
 import io
+from logger import log
 
 EDITOR_MAILS = ["bot-300@black-beach-453214-f6.iam.gserviceaccount.com", "diekrankenpfleger@gmail.com", "cyradiss1986@gmail.com"]
 
@@ -24,11 +25,11 @@ spreadsheet_payout_update = asyncio.Lock()
 class Column(Enum):
     COMPANY = 'E'
     NAME = 'F'
-    START = 'K'
+    START = 'J'
 
 # Offset for the first 6 entries
 COLUMN_START_OFFSET = 6
-ROW_START_OFFSET = 10
+ROW_START_OFFSET = 9
 
 
 raidhelper_id_manager = jsonFileManager.JsonFileManager("./raidhelper_id.json")
@@ -125,7 +126,7 @@ async def _update_payoutlist(bot: discord.Client, client: gspread_asyncio.Asynci
         # Get the new sheet
         sheet = await worksheet.worksheet(f"Payoutliste {current_month} {current_year}")
         await sheet.add_protected_range("A1:AAA3000", EDITOR_MAILS)
-        await sheet.batch_clear([f"{Column.START.value}7:AAA300", "K2:AAA4"])
+        await sheet.batch_clear([f"{Column.START.value}7:AAA300", "J2:AAA4"])
 
         # protect new created sheet so only specific users can edit the sheet
 
@@ -177,7 +178,8 @@ async def _update_payoutlist(bot: discord.Client, client: gspread_asyncio.Asynci
                                         for signup in json_data["signUps"]:
                                             raidhelper_usernames.append(signup["name"])
 
-                                events = await sheet.get_values("K3:AAA3", major_dimension="ROWS")
+                                log.info("Updating payout list")
+                                events = await sheet.get_values("J3:AAA3", major_dimension="ROWS")
                                 events = events[0]
                                 column_event = find_free_cell_in_row(events)
                                 await sheet.update_cell(3, column_event, "Raidhelper")
@@ -202,19 +204,25 @@ async def _update_payoutlist(bot: discord.Client, client: gspread_asyncio.Asynci
                         else:  
                             await sheet.update_cell(row, column_event, "1")
                     if discord_username_origin not in A_col:
-                        await sheet.update_cell(row, 6, discord_username_origin)
+                        name_update = []
+                        name_update.append({
+                            'range': f"{Column.NAME.value}{row}",
+                            'values': [[discord_username_origin]]
+                        })
+                        await sheet.batch_update(name_update, value_input_option=gspread.utils.ValueInputOption.raw)
                         # stats
-                        await sheet.update_cell(row, 1, f'=(ZÄHLENWENNS($K$4:$AAA$4; "*Push*";$K$3:$AAA$3;"*Teilnehmer*";K{row}:AAA{row}; ">0") + ZÄHLENWENNS($K$4:$AAA$4; "*Push*";$K$3:$AAA$3;"*Teilnehmer*";K{row}:AAA{row}; "x"))/$A$5')
-                        await sheet.update_cell(row, 2, f'=(ZÄHLENWENNS($K$4:$AAA$4; "*Krieg*";$K$3:$AAA$3;"*Teilnehmer*";K{row}:AAA{row}; ">0") + ZÄHLENWENNS($K$4:$AAA$4; "*Krieg*";$K$3:$AAA$3;"*Teilnehmer*";K{row}:AAA{row}; "x"))/$B$5')
-                        await sheet.update_cell(row, 3, f'=(ZÄHLENWENNS($K$3:$AAA$3;"*Raidhelper*";K{row}:AAA{row}; ">0") + ZÄHLENWENNS($K$3:$AAA$3;"*Raidhelper*";K{row}:AAA{row}; "x"))/$C$5')
-                        await sheet.update_cell(row, 4, f'=(ZÄHLENWENNS($K$3:$AAA$3;"*VOD*";K{row}:AAA{row}; ">0") + ZÄHLENWENNS($K$3:$AAA$3;"*VOD*";K{row}:AAA{row}; "x"))/$D$5')
+                        await sheet.update_cell(row, 1, f'=(ZÄHLENWENNS($J$4:$AAA$4; "*Push*";$J$3:$AAA$3;"*Teilnehmer*";J{row}:AAA{row}; ">0") + ZÄHLENWENNS($J$4:$AAA$4; "*Push*";$J$3:$AAA$3;"*Teilnehmer*";J{row}:AAA{row}; "x"))/$A$5')
+                        await sheet.update_cell(row, 2, f'=(ZÄHLENWENNS($J$4:$AAA$4; "*Krieg*";$J$3:$AAA$3;"*Teilnehmer*";J{row}:AAA{row}; ">0") + ZÄHLENWENNS($J$4:$AAA$4; "*Krieg*";$J$3:$AAA$3;"*Teilnehmer*";J{row}:AAA{row}; "x"))/$B$5')
+                        await sheet.update_cell(row, 3, f'=(ZÄHLENWENNS($J$3:$AAA$3;"*Raidhelper*";J{row}:AAA{row}; ">0") + ZÄHLENWENNS($J$3:$AAA$3;"*Raidhelper*";J{row}:AAA{row}; "x"))/$C$5')
+                        await sheet.update_cell(row, 4, f'=(ZÄHLENWENNS($J$3:$AAA$3;"*VOD*";J{row}:AAA{row}; ">0") + ZÄHLENWENNS($J$3:$AAA$3;"*VOD*";J{row}:AAA{row}; "x"))/$D$5')
                         await sheet.update_cell(row, 5, company)
-                        await sheet.update_cell(row, 8, f'=SUMME(J{row}:AAA{row})')
-                        await sheet.update_cell(row, 9, f'=H{row}*$I$3')
+                        await sheet.update_cell(row, 7, f'=SUMME(I{row}:AAA{row})')
+                        await sheet.update_cell(row, 8, f'=G{row}*$H$3')
                         if row - 1 - COLUMN_START_OFFSET < len(A_col):
                             A_col[row - 1 - COLUMN_START_OFFSET] = discord_username_origin
                         else:
                             A_col.append(discord_username_origin)
+                log.info("Payout list updated")
             await raidhelper_id_manager.save(data)
 
 async def update_payoutlist(bot: discord.Client, client: gspread_asyncio.AsyncioGspreadClientManager, parse_display_name: callable, spread_settings: jsonFileManager.JsonFileManager, gp_channel_manager: jsonFileManager.JsonFileManager):

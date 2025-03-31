@@ -18,7 +18,7 @@ import spreadsheet.urlaub
 from videoAnalyzer import VideoAnalyzer
 from collections import deque
 from google import genai
-from logger import logger as log
+from logger import log
 import matplotlib
 import textExtract
 import jsonFileManager
@@ -342,8 +342,14 @@ Die Person war {stamina_events} Mal out of stamina im letzten Krieg. Gib nur ein
 async def on_ready():
     global role_name_update_settings_cache
     role_name_update_settings_cache = await settings_manager.load()
-    check_channel.start()
-    check_for_raidhelpers.start()
+
+    if not check_channel.is_running():
+        check_channel.start()
+        
+    if not check_for_raidhelpers.is_running():
+        check_for_raidhelpers.start()
+
+
     log.info(f"Bot ist eingeloggt als {bot.user}")
     try:
         synced = await tree.sync()
@@ -1042,7 +1048,7 @@ async def set_company_role(interaction: discord.Interaction, role: discord.Role,
     if "company_role" not in roles:
         roles["company_role"] = {}
 
-    roles["company_role"][role.id] = str_in_spreadsheet
+    roles["company_role"][str(role.id)] = str_in_spreadsheet
     await spreadsheet_role_settings_manager.save(roles)
     await interaction.response.send_message(f"Company Rolle wurde erfolgreich gesetzt!", ephemeral=True)
 
@@ -1053,8 +1059,8 @@ async def remove_company_role(interaction: discord.Interaction, role: discord.Ro
     if "company_role" not in roles:
         roles["company_role"] = {}
 
-    if role.id in roles["company_role"]:
-        del roles["company_role"][role.id]
+    if str(role.id) in roles["company_role"]:
+        del roles["company_role"][str(role.id)]
         await spreadsheet_role_settings_manager.save(roles)
         await interaction.response.send_message(f"Company Rolle wurde erfolgreich entfernt!", ephemeral=True)
     else:
@@ -1090,7 +1096,7 @@ async def set_class_role(interaction: discord.Interaction, role: discord.Role, s
     if "class_role" not in roles:
         roles["class_role"] = {}
 
-    roles["class_role"][role.id] = str_in_spreadsheet
+    roles["class_role"][str(role.id)] = str_in_spreadsheet
     await spreadsheet_role_settings_manager.save(roles)
     await interaction.response.send_message(f"Class Rolle wurde erfolgreich gesetzt!", ephemeral=True)
 
@@ -1101,8 +1107,8 @@ async def remove_class_role(interaction: discord.Interaction, role: discord.Role
     if "class_role" not in roles:
         roles["class_role"] = {}
 
-    if role.id in roles["class_role"]:
-        del roles["class_role"][role.id]
+    if str(role.id) in roles["class_role"]:
+        del roles["class_role"][str(role.id)]
         await spreadsheet_role_settings_manager.save(roles)
         await interaction.response.send_message(f"Class Rolle wurde erfolgreich entfernt!", ephemeral=True)
     else:

@@ -5,6 +5,8 @@ import discord
 from enum import Enum
 import jsonFileManager
 import asyncio
+from logger import log
+
 
 spreadsheet_member_update = asyncio.Lock()
 
@@ -131,7 +133,9 @@ async def _update_member(client: gspread_asyncio.AsyncioGspreadClientManager, me
 
 async def update_member(client: gspread_asyncio.AsyncioGspreadClientManager, member: discord.Member, parse_display_name: callable, spread_settings: jsonFileManager.JsonFileManager):
     async with spreadsheet_member_update:
+        log.info(f"Updating member {member.display_name} ({member.id}) in spreadsheet")
         await _update_member(client, member, parse_display_name, spread_settings)
+        log.info(f"Member {member.display_name} ({member.id}) updated in spreadsheet")
 
 async def _sort_member(client: gspread_asyncio.AsyncioGspreadClientManager, spread_settings: jsonFileManager.JsonFileManager):
     """
@@ -148,4 +152,6 @@ async def _sort_member(client: gspread_asyncio.AsyncioGspreadClientManager, spre
 
 async def sort_member(client: gspread_asyncio.AsyncioGspreadClientManager, spread_settings: jsonFileManager.JsonFileManager):
     async with spreadsheet_member_update:
+        log.info("Sorting member list")
         await _sort_member(client, spread_settings)
+        log.info("Member list sorted")

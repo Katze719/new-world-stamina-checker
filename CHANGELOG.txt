@@ -1,3 +1,71 @@
+## Version 0.2.0-alpha.42
+
+### **Neue Features**
+- **Google Sheets Integration:**  
+  - Die Integration unterstützt jetzt vollständig die Verwaltung der **Memberliste** und **Payoutliste**.  
+  - Änderungen in der Google-Tabelle werden automatisch synchronisiert, um die neuesten Daten für Mitglieder und Auszahlungen bereitzustellen.
+
+### **Verbesserungen**
+- **Stamina-Leistenerkennung:**  
+  - Weitere Optimierungen für die Konsistenz bei der Farberkennung.
+
+### **Fixes**
+- **Fehler bei der Synchronisation:**  
+  - Behebung eines Problems, bei dem Änderungen in der Google-Tabelle nicht korrekt übernommen wurden.
+
+### **Bekannte Probleme**
+- **Farberkennung der Stamina-Leiste:**  
+  - In seltenen Fällen können extreme Farbabweichungen weiterhin zu Fehldetektionen führen.
+
+### **Geplante Features**
+- Erweiterte Analysefunktionen für Klassen- und Rollenstatistiken.
+- Integration von RaidHelper-Eventdaten in die Google-Tabelle.
+
+---
+
+## Version 0.2.0-alpha.41
+
+### **Neue Features**
+- **Befehl `/set_company_role` und `/remove_company_role`:**  
+  - Ermöglicht das Zuweisen und Entfernen von Firmenrollen basierend auf Werten aus der Google-Tabelle.
+- **Befehl `/set_class_role` und `/remove_class_role`:**  
+  - Ermöglicht das Zuweisen und Entfernen von Klassenrollen basierend auf Werten aus der Google-Tabelle.
+- **Befehl `/list_company_roles` und `/list_class_roles`:**  
+  - Zeigt alle konfigurierten Firmen- und Klassenrollen an.
+- **Befehl `/set_channel_raidhelper_race` und `/set_channel_raidhelper_war`:**  
+  - Ermöglicht das Festlegen von Kanälen für RaidHelper-Rennen und -Kriege.
+- **Befehl `/remove_channel_raidhelper_race` und `/remove_channel_raidhelper_war`:**  
+  - Entfernt die Konfiguration für RaidHelper-Kanäle.
+
+### **Verbesserungen**
+- **Stamina-Leistenerkennung:**  
+  - Optimierung der Farberkennung für bessere Konsistenz bei unterschiedlichen Gelbtönen in VODs.
+- **Debug-Modus:**  
+  - Verbesserte Darstellung der Debug-Rechtecke, um Fehler bei der Mehrfachkonturenerkennung zu vermeiden.
+- **Performance:**  
+  - Reduzierte Latenz bei der Verarbeitung von VODs durch effizientere Frame-Analyse.
+
+### **Fixes**
+- **Fehler bei der Objekterkennung:**  
+  - Behebung eines Problems, bei dem das War Board oder das Inventar fälschlicherweise als Stamina-Leiste erkannt wurde.
+- **Fehler bei der VOD-Warteschlange:**  
+  - Behebung eines Deadlocks, der bei gleichzeitiger Analyse von „hidden“ VODs und manuellen Analysen auftrat.
+- **Fehler bei der Nickname-Aktualisierung:**  
+  - Behebung eines Problems, bei dem Nicknames nicht korrekt aktualisiert wurden, wenn das Muster Sonderzeichen enthielt.
+
+### **Bekannte Probleme**
+- **Farberkennung der Stamina-Leiste:**  
+  - In seltenen Fällen können extreme Farbabweichungen weiterhin zu Fehldetektionen führen.
+- **Falsche Objekterkennung:**  
+  - Das War Board und das Inventar können in bestimmten Szenarien immer noch als Stamina-Leiste erkannt werden.
+
+### **Geplante Features**
+- Automatische Erkennung von Todesfällen in VODs.
+- Erweiterte Analysefunktionen für Klassen- und Rollenstatistiken.
+- Integration von RaidHelper-Eventdaten in die Google-Tabelle.
+
+---
+
 ## Version 0.2.0-alpha.40
 
 ### **Algorythmus-Änderungen & Fixes**
