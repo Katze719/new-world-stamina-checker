@@ -108,33 +108,92 @@ async def stats(client: gspread_asyncio.AsyncioGspreadClientManager, interaction
     embed = discord.Embed(title=f"Stats", color=discord.Color.blurple())
     embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.avatar.url)
 
-    if member_name not in A_col:
-        embed.add_field(name="Teilnahme", value="Du wurdest nicht in der Payoutliste gefunden.", inline=False)
-        await interaction.edit_original_response(embed=embed)
-        return
-    else:
-        row_number = A_col.index(member_name) + 1 + COLUMN_START_OFFSET
-        
-        # send quota info to user
-        quota = await sheet.get_values(f"{Column.QUOTA_RACES.value}{row_number}:{Column.QUOTA_VOD.value}{row_number}", major_dimension="ROWS")
-        quota = quota[0]
-        embed.add_field(name=f"{current_month} {current_year}", value=f"- **Races**: {quota[0]}\n- **Wars**: {quota[1]}\n- **Raidhelper**: {quota[2]}\n- **VOD**: {quota[3]}", inline=False)
+    async def get_quota(sheet_ref, month_label, year_label):
+        # Return quota data (list of values) if member exists in the sheet, otherwise None.
+        A_col = await sheet_ref.get_values(users, major_dimension="COLUMNS")
+        A_col = A_col[0]
+        if member_name in A_col:
+            row = A_col.index(member_name) + 1 + COLUMN_START_OFFSET
+            quota_range = f"{Column.QUOTA_RACES.value}{row}:{Column.QUOTA_VOD.value}{row}"
+            quota_data = await sheet_ref.get_values(quota_range, major_dimension="ROWS")
+            return quota_data[0] if quota_data else None
+        return None
 
-        # add last month sheet quota
-        A_col_last_month = await last_month_sheet.get_values(users, major_dimension="COLUMNS")
-        A_col_last_month = A_col_last_month[0]
-        if member_name in A_col_last_month:
-            last_month_row = A_col_last_month.index(member_name) + 1 + COLUMN_START_OFFSET
+    # Define the users range once
+    users = f"{Column.NAME.value}{COLUMN_START_OFFSET + 1}:{Column.NAME.value}200"
 
-            last_month_quota = await last_month_sheet.get_values(f"{Column.QUOTA_RACES.value}{last_month_row}:{Column.QUOTA_VOD.value}{last_month_row}", major_dimension="ROWS")
-            last_month_quota = last_month_quota[0]
-            embed.add_field(name=f"{last_month_name} {last_month_year}", value=f"- **Races**: {last_month_quota[0]}\n- **Wars**: {last_month_quota[1]}\n- **Raidhelper**: {last_month_quota[2]}\n- **VOD**: {last_month_quota[3]}", inline=False)
-        else:
+    # Get quotas for current and last month
+    current_quota = await get_quota(sheet, current_month, current_year)
+    last_month_quota = await get_quota(last_month_sheet, last_month_name, last_month_year)
+
+    if current_quota is None:
+        # Nutzer im aktuellen Monat nicht gefunden: Eventuell, weil der Bot noch Vorbereitungen trifft,
+        # der Nutzer noch verifiziert wird oder es noch keinen neuen Raid-Helper in diesem Monat gab.
+        if last_month_quota is not None:
             embed.add_field(
                 name=f"{last_month_name} {last_month_year}",
-                value="Du wurdest nicht in der Payoutliste gefunden.\nAufgrund von Änderungen (Breaking Changes) in der Payoutliste können der Februar sowie alle älteren Monate momentan nicht angezeigt werden.\nWir bitten um dein Verständnis.",
+                value=(
+                    f"- **Races**: {last_month_quota[0]}\n"
+                    f"- **Wars**: {last_month_quota[1]}\n"
+                    f"- **Raidhelper**: {last_month_quota[2]}\n"
+                    f"- **VOD**: {last_month_quota[3]}\n\n"
+                ),
                 inline=False
             )
-
-
+            embed.add_field(
+                name=f"{current_month} {current_year}",
+                value=(
+                    "Deine Daten für diesen Monat sind noch nicht verfügbar.\n"
+                    "Möglicherweise befindet sich der Bot noch in den Vorbereitungen, du wirst gerade verifiziert oder der Raid-Helper wurde noch nicht aktualisiert."
+                ),
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="Teilnahme",
+                value=(
+                    "Deine Teilnahme wurde im aktuellen Monat nicht gefunden.\n"
+                    "Dies kann daran liegen, dass der Bot noch Vorbereitungen trifft, du eventuell noch in der Verifizierung bist oder es in diesem Monat noch keinen neuen Raid-Helper gab."
+                ),
+                inline=False
+            )
         await interaction.edit_original_response(embed=embed)
+        return
+
+    # Member found in current month: add current month quota data
+    embed.add_field(
+        name=f"{current_month} {current_year}",
+        value=(
+            "*Hinweis: Dies ist der aktuelle Monat und möglicherweise sind noch nicht alle Daten eingepflegt.*\n"
+            f"- **Races**: {current_quota[0]}\n"
+            f"- **Wars**: {current_quota[1]}\n"
+            f"- **Raidhelper**: {current_quota[2]}\n"
+            f"- **VOD**: {current_quota[3]}\n\n"
+        ),
+        inline=False
+    )
+
+    # Add last month quota data or note its absence
+    if last_month_quota is not None:
+        embed.add_field(
+            name=f"{last_month_name} {last_month_year}",
+            value=(
+                f"- **Races**: {last_month_quota[0]}\n"
+                f"- **Wars**: {last_month_quota[1]}\n"
+                f"- **Raidhelper**: {last_month_quota[2]}\n"
+                f"- **VOD**: {last_month_quota[3]}"
+            ),
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name=f"{last_month_name} {last_month_year}",
+            value=(
+                "Du wurdest nicht in der Payoutliste gefunden.\n"
+                "Aufgrund von Änderungen (Breaking Changes) in der Payoutliste können der Februar sowie "
+                "alle älteren Monate momentan nicht angezeigt werden.\nWir bitten um dein Verständnis."
+            ),
+            inline=False
+        )
+
+    await interaction.edit_original_response(embed=embed)
