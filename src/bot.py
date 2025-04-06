@@ -1806,11 +1806,15 @@ async def level(interaction: discord.Interaction, user: Optional[discord.Member]
     
     await interaction.response.send_message(embed=embed)
 
-@tree.command(name="leaderboard", description="Zeigt die Top-Spieler nach Level an")
+@tree.command(name="leaderboard", description="Zeigt die Top-Spieler nach XP an")
 async def leaderboard(interaction: discord.Interaction, type: str = None):
     """Show server leaderboard"""
     # Set default type if not specified
-    if type is None or type == "level":
+    if type is None or type == "xp":
+        sort_by = "xp"
+        sort_field = "xp"
+        title = "⭐ Leaderboard - Top nach XP"
+    elif type == "level":
         sort_by = "level"
         sort_field = "level"
         title = "🏆 Leaderboard - Top nach Level"
@@ -1823,10 +1827,10 @@ async def leaderboard(interaction: discord.Interaction, type: str = None):
         sort_field = "voice_time"
         title = "🎙️ Leaderboard - Top nach Sprachzeit"
     else:
-        # Default to level if an invalid option is provided
-        sort_by = "level"
-        sort_field = "level"
-        title = "🏆 Leaderboard - Top nach Level"
+        # Default to XP if an invalid option is provided
+        sort_by = "xp"
+        sort_field = "xp"
+        title = "⭐ Leaderboard - Top nach XP"
     
     # Get data from database
     conn = sqlite3.connect(DB_PATH)
@@ -1863,7 +1867,9 @@ async def leaderboard(interaction: discord.Interaction, type: str = None):
         medal = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else f"{i+1}."
         
         # Value based on sort type
-        if sort_by == "level":
+        if sort_by == "xp":
+            value = f"{xp} XP (Level {level})"
+        elif sort_by == "level":
             value = f"Level {level} ({xp} XP)"
         elif sort_by == "messages":
             value = f"{message_count} Nachrichten (Level {level})"
@@ -1881,6 +1887,7 @@ async def leaderboard(interaction: discord.Interaction, type: str = None):
 @leaderboard.autocomplete('type')
 async def leaderboard_autocomplete(interaction: discord.Interaction, current: str):
     types = [
+        app_commands.Choice(name="Nach XP", value="xp"),
         app_commands.Choice(name="Nach Level", value="level"),
         app_commands.Choice(name="Nach Nachrichten", value="messages"),
         app_commands.Choice(name="Nach Sprachzeit", value="voice")
