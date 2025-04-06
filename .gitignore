@@ -13,6 +13,7 @@ black-beach-453214-f6-3393b23dd7f1.json
 test.py
 raidhelper_id.json
 
+
 # Distribution / packaging
 .Python
 build/
@@ -181,3 +182,8 @@ debug/
 output/
 vod_channels.json
 video_cache.json
+
+level_system.db
+
+# Discord bot token
+token.txt

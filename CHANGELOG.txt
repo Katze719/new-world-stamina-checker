@@ -1,3 +1,40 @@
+## Version 0.3.12-beta.82
+
+### **Neue Features**
+- **Level-System:**  
+  - Implementierung eines vollständigen Aktivitäts-Tracking- und Belohnungssystems:
+    - Automatische XP-Vergabe: 1 XP pro Nachricht und 3 XP pro Minute in Sprachkanälen
+    - 10 Level mit steigenden XP-Anforderungen pro Level
+    - SQLite-Datenbank zur Verfolgung des Fortschritts
+  - Neue Befehle für Benutzer:
+    - `/level [user]`: Zeigt den aktuellen Level, XP und Fortschritt an
+    - `/leaderboard [type]`: Zeigt Ranglisten nach Level, Nachrichten oder Sprachzeit an
+  - Neue Admin-Befehle:
+    - `/add_xp <user> <amount>`: Fügt einem Benutzer XP hinzu
+    - `/set_level <user> <level>`: Setzt das Level eines Benutzers direkt (max. 10)
+    - `/reset_levels <confirm>`: Setzt alle Level zurück
+    - `/level_stats`: Zeigt allgemeine Statistiken zum Level-System an
+  - Erweiterung des Nickname-Patterns für Level-Anzeige:
+    - Neues Standard-Format: `{name} ({level}) [{icons}]`
+    - Vorhandene `/set_pattern`-Befehle wurden aktualisiert, um Level-Platzhalter zu unterstützen
+
+### **Verbesserungen**
+- **Nickname-Formatierung:**  
+  - Level werden jetzt als normale Zahlen (statt Emojis) in runden Klammern angezeigt
+  - Standard-Format geändert von `{name} {level} [{icons}]` zu `{name} ({level}) [{icons}]`
+  - Neue Beispiel-Patterns mit Klammern in den Vorschlägen hinzugefügt
+
+### **Fixes**
+- **Leaderboard-Befehle:**
+  - Behebung eines Fehlers mit dem Typparameter im Leaderboard-Befehl
+  - Verbesserte Autocomplete-Funktionalität für Leaderboard-Typen
+
+### **Geplante Features**
+- Wöchentliche und monatliche Aktivitätsstatistiken
+- Temporäre XP-Boosts für besondere Events
+
+---
+
 ## Version 0.2.0-alpha.42
 
 ### **Neue Features**
@@ -49,7 +86,7 @@
 - **Fehler bei der Objekterkennung:**  
   - Behebung eines Problems, bei dem das War Board oder das Inventar fälschlicherweise als Stamina-Leiste erkannt wurde.
 - **Fehler bei der VOD-Warteschlange:**  
-  - Behebung eines Deadlocks, der bei gleichzeitiger Analyse von „hidden“ VODs und manuellen Analysen auftrat.
+  - Behebung eines Deadlocks, der bei gleichzeitiger Analyse von "hidden" VODs und manuellen Analysen auftrat.
 - **Fehler bei der Nickname-Aktualisierung:**  
   - Behebung eines Problems, bei dem Nicknames nicht korrekt aktualisiert wurden, wenn das Muster Sonderzeichen enthielt.
 
@@ -149,7 +186,7 @@
 ### **Algorithmus-Änderungen & Fixes**
 - **Stamina-Leistenerkennung:**  
   - Fixed ein Problem, bei dem die Stamina-Leiste zu weit rechts erkannt wurde.  
-  - Fixed ein Problem, bei dem die Stamina-Leiste fälschlicherweise als „out of stamina“ erkannt wurde, obwohl noch mehr als 0.001 gelbe Pixel vorhanden waren.
+  - Fixed ein Problem, bei dem die Stamina-Leiste fälschlicherweise als "out of stamina" erkannt wurde, obwohl noch mehr als 0.001 gelbe Pixel vorhanden waren.
 
 - **VOD-Ergebnisübermittlung:**  
   - Fixed ein Problem, bei dem keine Nachricht gesendet werden konnte, wenn die VOD-Ergebnisse zu viel Text enthielten.
@@ -158,9 +195,9 @@
   - Fixed ein Problem im `debug_mode` (`/stamina_check youtube_url:<url> debug_mode:True`), bei dem Bilder einzeln versendet wurden.  
     - Bilder werden jetzt immer in Paketen von 10 Bildern versendet.
 
-- **Analyse von „Hidden“ VODs:**  
-  - Fixed einen Deadlock, der auftrat, wenn ein „hidden“ VOD analysiert wurde und der Benutzer gleichzeitig eine manuelle Analyse auslöste, was zu einem Absturz führte.  
-  > „Hidden“ VODs sind solche, bei denen der Befehl nicht direkt ausgeführt, sondern durch das Posten eines YouTube-Links ausgelöst wird.
+- **Analyse von "Hidden" VODs:**  
+  - Fixed einen Deadlock, der auftrat, wenn ein "hidden" VOD analysiert wurde und der Benutzer gleichzeitig eine manuelle Analyse auslöste, was zu einem Absturz führte.  
+  > "Hidden" VODs sind solche, bei denen der Befehl nicht direkt ausgeführt, sondern durch das Posten eines YouTube-Links ausgelöst wird.
 
 ### **Bekannte Probleme**
 - **Farberkennung der Stamina-Leiste:**  
@@ -171,5 +208,7 @@
   - In manchen Fällen wird das **War Board** fälschlicherweise als Stamina-Leiste erkannt.  
   - Vereinzelt kam es vor, dass das **Inventar** als Stamina-Leiste interpretiert wurde.  
   - Beide Probleme werden derzeit untersucht.
+
+---
 
 ---

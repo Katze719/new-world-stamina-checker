@@ -25,7 +25,7 @@ import jsonFileManager
 from typing import Optional
 import datetime
 from zoneinfo import ZoneInfo  # Erfordert Python 3.9+
-
+import sqlite3
 import spreadsheet
 
 matplotlib.use('Agg')  # Nutzt ein nicht-interaktives Backend für Speicherung
@@ -71,9 +71,52 @@ gp_channel_manager = jsonFileManager.JsonFileManager(GP_CHANNEL_IDS_FILE)
 spreadsheet_role_settings_manager = jsonFileManager.JsonFileManager(SPREADSHEET_ROLE_SETTINGS_PATH)
 written_raidhelpers_manager = jsonFileManager.JsonFileManager(WRITTEN_RAIDHELPERS_FILE)
 
+# Initialize SQLite database for level system
+DB_PATH = "./level_system.db"
+
+# XP requirements for each level (global constants)
+XP_REQUIREMENTS = [100, 250, 500, 800, 1200, 1700, 2300, 3000, 4000, 5000]
+MAX_LEVEL = 10
+
+def init_level_db():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Create users table
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS user_levels (
+        user_id TEXT PRIMARY KEY,
+        username TEXT,
+        xp INTEGER DEFAULT 0,
+        level INTEGER DEFAULT 0,
+        message_count INTEGER DEFAULT 0,
+        voice_time INTEGER DEFAULT 0
+    )
+    ''')
+    
+    # Create voice activity tracking table
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS voice_sessions (
+        user_id TEXT,
+        channel_id TEXT,
+        start_time INTEGER,
+        is_active BOOLEAN DEFAULT 1,
+        PRIMARY KEY (user_id, channel_id, start_time)
+    )
+    ''')
+    
+    conn.commit()
+    conn.close()
+
+# Initialize database
+init_level_db()
+
+# Store active voice users {user_id: {channel_id: start_time}}
+active_voice_users = {}
+
 role_name_update_settings_cache = {}
 
-default_pattern = "{name} [{icons}]"
+default_pattern = "{name} ({level}) [{icons}]"
 if "global_pattern" not in role_name_update_settings_cache:
     role_name_update_settings_cache["global_pattern"] = default_pattern
 
@@ -348,7 +391,9 @@ async def on_ready():
         
     if not check_for_raidhelpers.is_running():
         check_for_raidhelpers.start()
-
+        
+    if not reward_voice_activity.is_running():
+        reward_voice_activity.start()
 
     log.info(f"Bot ist eingeloggt als {bot.user}")
     try:
@@ -364,6 +409,27 @@ YOUTUBE_REGEX = re.compile(r"(https?://)?(www\.)?(youtube\.com|youtu\.?be)/.+")
 async def on_message(message: discord.Message):
     if message.author.bot:
         return
+    
+    # Add XP for sending a message
+    leveled_up, new_level = await add_message_xp(message.author.id, message.author.display_name)
+    
+    # Notify user of level up in DM
+    if leveled_up:
+        try:
+            level_up_embed = discord.Embed(
+                title="🎉 Level Up!",
+                description=f"Congratulations! You've reached **Level {new_level}**!",
+                color=discord.Color.gold()
+            )
+            await message.author.send(embed=level_up_embed)
+        except discord.Forbidden:
+            # User has DMs closed, notify in channel
+            level_up_embed = discord.Embed(
+                title="🎉 Level Up!",
+                description=f"Congratulations {message.author.mention}! You've reached **Level {new_level}**!",
+                color=discord.Color.gold()
+            )
+            await message.channel.send(embed=level_up_embed, delete_after=10)
     
     watch_user_exctaction_channel = (await gp_channel_manager.load()).get("watch_user_exctaction_channel", None)
     if watch_user_exctaction_channel and str(message.channel.id) == str(watch_user_exctaction_channel):
@@ -499,6 +565,45 @@ async def on_message(message: discord.Message):
                 embed.title = f"❌ Dein video ist entweder noch nicht hochgeladen oder noch nicht verarbeitet von youtube! {youtube_url}, CC=hidden~<make install_module hidden>~WARNING>>\\x06\\x01\\xA0\\x00 User: {message.author.display_name} ~WENN DU DAS HIER SIEHST MELDE DICH BEI PFEFFERMUEHLE! JETZT!~"
                 await coach_channel.send(embed=embed)
 
+@bot.event
+async def on_voice_state_update(member, before, after):
+    """Track voice channel activity for XP rewards"""
+    if member.bot:
+        return
+    
+    # User joined a voice channel
+    if before.channel is None and after.channel is not None:
+        await start_voice_session(member.id, after.channel.id)
+    
+    # User left a voice channel
+    elif before.channel is not None and after.channel is None:
+        leveled_up, new_level = await end_voice_session(member.id, before.channel.id, member.display_name)
+        
+        # Notify about level up
+        if leveled_up:
+            try:
+                level_up_embed = discord.Embed(
+                    title="🎉 Level Up!",
+                    description=f"Congratulations! You've reached **Level {new_level}**!",
+                    color=discord.Color.gold()
+                )
+                await member.send(embed=level_up_embed)
+            except discord.Forbidden:
+                pass  # User has DMs closed
+    
+    # User switched voice channels
+    elif before.channel is not None and after.channel is not None and before.channel.id != after.channel.id:
+        # End previous session
+        await end_voice_session(member.id, before.channel.id, member.display_name)
+        # Start new session
+        await start_voice_session(member.id, after.channel.id)
+    
+    # User muted/unmuted
+    elif before.channel is not None and after.channel is not None and before.self_mute != after.self_mute:
+        # We could add additional tracking here for when users mute/unmute
+        # For now, we'll keep tracking as long as they're in the channel
+        pass
+
 def parse_changelog():
     try:
         with open('CHANGELOG.txt', 'r') as file:
@@ -525,12 +630,30 @@ async def changelog(ctx: discord.Interaction):
 def pattern_to_regex(pattern: str) -> re.Pattern:
     """
     Erzeugt aus dem Pattern einen Regex.
-    Ersetzt {name} und {icons} durch nicht-gierige Capturing-Gruppen.
+    Ersetzt {name}, {level} und {icons} durch nicht-gierige Capturing-Gruppen.
     """
     escaped = re.escape(pattern)
     escaped = escaped.replace(re.escape("{name}"), r"(?P<name>.*?)")
+    escaped = escaped.replace(re.escape("{level}"), r"(?P<level>.*?)")
     escaped = escaped.replace(re.escape("{icons}"), r"(?P<icons>.*?)")
     return re.compile("^" + escaped + "$")
+
+def get_level_emoji(level: int) -> str:
+    """Returns the emoji representation of a level number."""
+    level_emojis = {
+        0: "0",
+        1: "1",
+        2: "2",
+        3: "3",
+        4: "4",
+        5: "5",
+        6: "6",
+        7: "7",
+        8: "8",
+        9: "9",
+        10: "10"
+    }
+    return level_emojis.get(level, "X")
 
 async def update_member_nickname(member: discord.Member):
     """
@@ -558,23 +681,33 @@ async def update_member_nickname(member: discord.Member):
     
     icons = "".join(icon for prio, icon in icons_with_prio)
     
+    # Get user's level emoji
+    level_data = await get_user_level_data(member.id)
+    level = 0
+    if level_data:
+        level = level_data["level"]
+    level_emoji = get_level_emoji(level)
+    
     pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
     regex = pattern_to_regex(pattern)
     match = regex.match(member.display_name)
     if match:
-        base_name = match.group("name").strip()
+        try:
+            base_name = match.group("name").strip()
+        except IndexError:
+            base_name = member.display_name
     else:
         base_name = member.display_name
 
-    expected_nick = pattern.format(icons=icons, name=base_name)
+    expected_nick = pattern.format(icons=icons, name=base_name, level=level_emoji)
     if len(expected_nick) > 32:
-        # Berechne, wie viele Zeichen für {name} übrig bleiben, wenn {icons} unverändert bleiben
-        fixed_part = pattern.format(icons=icons, name="")  # Platzhalter für den variablen Teil wird hier durch "" ersetzt
+        # Berechne, wie viele Zeichen für {name} übrig bleiben, wenn {icons} und {level} unverändert bleiben
+        fixed_part = pattern.format(icons=icons, name="", level=level_emoji)  # Platzhalter für den variablen Teil wird hier durch "" ersetzt
         allowed_name_length = 32 - len(fixed_part)
         if allowed_name_length < 0:
             allowed_name_length = 0  # Sicherheitshalber
         base_name = base_name[:allowed_name_length]
-        expected_nick = pattern.format(icons=icons, name=base_name)
+        expected_nick = pattern.format(icons=icons, name=base_name, level=level_emoji)
 
     if member.display_name != expected_nick:
         try:
@@ -591,7 +724,10 @@ async def update_member_in_spreadsheet(member: discord.Member):
         regex = pattern_to_regex(pattern)
         match = regex.match(member.display_name)
         if match:
-            return match.group("name").strip()
+            try:
+                return match.group("name").strip()
+            except (IndexError, KeyError):
+                return member.display_name
         else:
             return member.display_name
 
@@ -678,7 +814,9 @@ async def pattern_autocomplete(interaction: discord.Interaction, current: str):
     Gibt eine Auswahl an bereits genutzten Patterns zurück.
     (Hier kannst du z. B. eine statische Liste oder eine aus der Datenbank geladene Liste verwenden.)
     """
-    used_patterns = ["{name} [{icons}]", "[{icons}] {name}"]
+    used_patterns = [
+        "{name} ({level}) [{icons}]",
+    ]
     choices = []
     for p in used_patterns:
         if current.lower() in p.lower():
@@ -992,7 +1130,10 @@ async def check_for_raidhelpers():
         regex = pattern_to_regex(pattern)
         match = regex.match(member.display_name)
         if match:
-            return match.group("name").strip()
+            try:
+                return match.group("name").strip()
+            except (IndexError, KeyError):
+                return member.display_name
         else:
             return member.display_name
 
@@ -1034,7 +1175,10 @@ async def stats(interaction: discord.Interaction):
         regex = pattern_to_regex(pattern)
         match = regex.match(member.display_name)
         if match:
-            return match.group("name").strip()
+            try:
+                return match.group("name").strip()
+            except (IndexError, KeyError):
+                return member.display_name
         else:
             return member.display_name
 
@@ -1241,7 +1385,10 @@ async def abwesenheit(interaction: discord.Interaction):
         regex = pattern_to_regex(pattern)
         match = regex.match(member.display_name)
         if match:
-            return match.group("name").strip()
+            try:
+                return match.group("name").strip()
+            except (IndexError, KeyError):
+                return member.display_name
         else:
             return member.display_name
         
@@ -1256,5 +1403,529 @@ async def set_error_log_channel(interaction: discord.Interaction, channel: disco
     await gp_channel_manager.save(channels)
     await interaction.response.send_message(f"Error Log Channel wurde erfolgreich gesetzt!", ephemeral=True)
 
+# Level system helper functions
+def get_xp_for_level(level):
+    """Calculate total XP needed for a specific level"""
+    if level <= 0:
+        return 0
+    
+    # Cap at max level
+    if level > MAX_LEVEL:
+        level = MAX_LEVEL
+    
+    # Sum all XP requirements up to this level
+    return sum(XP_REQUIREMENTS[:level])
+
+def get_level_progress(current_xp):
+    """Calculate level and progress based on XP"""
+    level = 0
+    accumulated_xp = 0
+    
+    # Determine level based on accumulated XP
+    for i, required_xp in enumerate(XP_REQUIREMENTS):
+        if current_xp >= accumulated_xp + required_xp:
+            level = i + 1
+            accumulated_xp += required_xp
+        else:
+            break
+            
+    # If at max level, return max level with 100% progress
+    if level >= MAX_LEVEL:
+        return MAX_LEVEL, 100, accumulated_xp, accumulated_xp
+        
+    # Calculate progress to next level
+    if level < len(XP_REQUIREMENTS):
+        next_level_xp = accumulated_xp + XP_REQUIREMENTS[level]
+        xp_progress = current_xp - accumulated_xp
+        progress = round((xp_progress / XP_REQUIREMENTS[level]) * 100) if XP_REQUIREMENTS[level] > 0 else 100
+        return level, progress, accumulated_xp, next_level_xp
+    else:
+        return level, 100, accumulated_xp, accumulated_xp
+
+async def get_user_level_data(user_id):
+    """Get user level data from database"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM user_levels WHERE user_id = ?", (str(user_id),))
+    result = cursor.fetchone()
+    conn.close()
+    
+    if result:
+        return {
+            "user_id": result[0],
+            "username": result[1],
+            "xp": result[2],
+            "level": result[3],
+            "message_count": result[4],
+            "voice_time": result[5]
+        }
+    return None
+
+async def ensure_user_in_db(user_id, username):
+    """Create user in database if not exists"""
+    user_data = await get_user_level_data(user_id)
+    if not user_data:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO user_levels (user_id, username, xp, level, message_count, voice_time) VALUES (?, ?, 0, 0, 0, 0)",
+            (str(user_id), username)
+        )
+        conn.commit()
+        conn.close()
+        return True
+    return False
+
+async def add_xp(user_id, username, xp_amount):
+    """Add XP to user and check for level up"""
+    await ensure_user_in_db(user_id, username)
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Get current XP and level
+    cursor.execute("SELECT xp, level FROM user_levels WHERE user_id = ?", (str(user_id),))
+    current_xp, current_level = cursor.fetchone()
+    
+    # Add XP
+    new_xp = current_xp + xp_amount
+    
+    # Calculate new level based on XP
+    new_level, _, _, _ = get_level_progress(new_xp)
+    
+    # Update database
+    cursor.execute(
+        "UPDATE user_levels SET xp = ?, level = ? WHERE user_id = ?",
+        (new_xp, new_level, str(user_id))
+    )
+    conn.commit()
+    conn.close()
+    
+    # Return True if level up occurred
+    return new_level > current_level, new_level if new_level > current_level else None
+
+async def add_message_xp(user_id, username):
+    """Add XP for sending a message"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Increment message count
+    cursor.execute(
+        "UPDATE user_levels SET message_count = message_count + 1 WHERE user_id = ?",
+        (str(user_id),)
+    )
+    conn.commit()
+    conn.close()
+    
+    # Add 1 XP per message
+    xp_earned = 1
+    return await add_xp(user_id, username, xp_earned)
+
+async def start_voice_session(user_id, channel_id):
+    """Record start of voice activity"""
+    # Store in memory for quick access
+    if user_id not in active_voice_users:
+        active_voice_users[user_id] = {}
+    
+    # Only start if not already in this channel
+    if channel_id not in active_voice_users[user_id]:
+        start_time = int(time.time())
+        active_voice_users[user_id][channel_id] = start_time
+        
+        # Store in database
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO voice_sessions (user_id, channel_id, start_time) VALUES (?, ?, ?)",
+            (str(user_id), str(channel_id), start_time)
+        )
+        conn.commit()
+        conn.close()
+
+async def end_voice_session(user_id, channel_id, username):
+    """End voice session and award XP"""
+    # Check if session exists
+    if user_id in active_voice_users and channel_id in active_voice_users[user_id]:
+        start_time = active_voice_users[user_id][channel_id]
+        end_time = int(time.time())
+        duration = end_time - start_time
+        
+        # Remove from active sessions
+        del active_voice_users[user_id][channel_id]
+        if not active_voice_users[user_id]:
+            del active_voice_users[user_id]
+        
+        # Update database
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # Mark session as inactive
+        cursor.execute(
+            "UPDATE voice_sessions SET is_active = 0 WHERE user_id = ? AND channel_id = ? AND start_time = ?",
+            (str(user_id), str(channel_id), start_time)
+        )
+        
+        # Update voice time
+        cursor.execute(
+            "UPDATE user_levels SET voice_time = voice_time + ? WHERE user_id = ?",
+            (duration, str(user_id))
+        )
+        conn.commit()
+        conn.close()
+        
+        # Award XP (3 XP per minute with a minimum of 1)
+        minutes = max(1, int(duration / 60))
+        xp_earned = minutes * 3
+        return await add_xp(user_id, username, xp_earned)
+    
+    return False, None
+
+@tree.command(name="level", description="Zeigt dein aktuelles Level und XP an")
+async def level(interaction: discord.Interaction, user: Optional[discord.Member] = None):
+    """Show user level and XP"""
+    target_user = user or interaction.user
+    
+    # Get level data
+    level_data = await get_user_level_data(target_user.id)
+    if not level_data:
+        # Initialize user if they don't exist yet
+        await ensure_user_in_db(target_user.id, target_user.display_name)
+        level_data = await get_user_level_data(target_user.id)
+    
+    current_xp = level_data["xp"]
+    
+    # Calculate level and progress
+    current_level, progress, _, next_level_xp = get_level_progress(current_xp)
+    
+    # Format voice time
+    voice_time_hours = level_data["voice_time"] // 3600
+    voice_time_minutes = (level_data["voice_time"] % 3600) // 60
+    voice_time_str = f"{voice_time_hours}h {voice_time_minutes}m"
+    
+    # Create embed
+    embed = discord.Embed(
+        title=f"🏆 Level-Status von {target_user.display_name}",
+        color=discord.Color.blue()
+    )
+    
+    embed.add_field(name="Level", value=str(current_level), inline=True)
+    
+    if current_level < MAX_LEVEL:
+        embed.add_field(name="XP", value=f"{current_xp}/{next_level_xp}", inline=True)
+        embed.add_field(name="Fortschritt", value=f"{progress}%", inline=True)
+    else:
+        embed.add_field(name="XP", value=f"{current_xp} (Max Level erreicht!)", inline=True)
+        embed.add_field(name="Fortschritt", value="Maximales Level erreicht", inline=True)
+    
+    embed.add_field(name="Nachrichten", value=str(level_data["message_count"]), inline=True)
+    embed.add_field(name="Sprachzeit", value=voice_time_str, inline=True)
+    
+    # Add a progress bar (20 character width)
+    if current_level < MAX_LEVEL:
+        progress_bar_length = 20
+        filled_length = int(progress_bar_length * progress / 100)
+        bar = "█" * filled_length + "░" * (progress_bar_length - filled_length)
+        embed.add_field(name="Fortschritt zum nächsten Level", value=f"`{bar}` {progress}%", inline=False)
+    else:
+        embed.add_field(name="Fortschritt", value=f"Maximales Level ({MAX_LEVEL}) erreicht! 🎉", inline=False)
+    
+    # Set user avatar if available
+    if target_user.avatar:
+        embed.set_thumbnail(url=target_user.avatar.url)
+    
+    await interaction.response.send_message(embed=embed)
+
+@tree.command(name="leaderboard", description="Zeigt die Top-Spieler nach Level an")
+async def leaderboard(interaction: discord.Interaction, type: str = None):
+    """Show server leaderboard"""
+    # Set default type if not specified
+    if type is None or type == "level":
+        sort_by = "level"
+        sort_field = "level"
+        title = "🏆 Leaderboard - Top nach Level"
+    elif type == "messages":
+        sort_by = "messages"
+        sort_field = "message_count"
+        title = "💬 Leaderboard - Top nach Nachrichten"
+    elif type == "voice":
+        sort_by = "voice"
+        sort_field = "voice_time"
+        title = "🎙️ Leaderboard - Top nach Sprachzeit"
+    else:
+        # Default to level if an invalid option is provided
+        sort_by = "level"
+        sort_field = "level"
+        title = "🏆 Leaderboard - Top nach Level"
+    
+    # Get data from database
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(f"SELECT user_id, username, xp, level, message_count, voice_time FROM user_levels ORDER BY {sort_field} DESC LIMIT 10")
+    top_users = cursor.fetchall()
+    conn.close()
+    
+    if not top_users:
+        await interaction.response.send_message("Noch keine Daten in der Leaderboard-Datenbank!")
+        return
+    
+    # Create embed
+    embed = discord.Embed(
+        title=title,
+        description="Die aktivsten Mitglieder des Servers:",
+        color=discord.Color.gold()
+    )
+    
+    # Add fields for each user
+    for i, user_data in enumerate(top_users):
+        user_id, username, xp, level, message_count, voice_time = user_data
+        
+        # Try to get member from guild for updated username
+        member = interaction.guild.get_member(int(user_id))
+        display_name = member.display_name if member else username
+        
+        # Format voice time
+        voice_hours = voice_time // 3600
+        voice_minutes = (voice_time % 3600) // 60
+        voice_str = f"{voice_hours}h {voice_minutes}m"
+        
+        # Medal for top 3
+        medal = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else f"{i+1}."
+        
+        # Value based on sort type
+        if sort_by == "level":
+            value = f"Level {level} ({xp} XP)"
+        elif sort_by == "messages":
+            value = f"{message_count} Nachrichten (Level {level})"
+        else:  # voice
+            value = f"{voice_str} (Level {level})"
+        
+        embed.add_field(
+            name=f"{medal} {display_name}",
+            value=value,
+            inline=False
+        )
+    
+    await interaction.response.send_message(embed=embed)
+
+@leaderboard.autocomplete('type')
+async def leaderboard_autocomplete(interaction: discord.Interaction, current: str):
+    types = [
+        app_commands.Choice(name="Nach Level", value="level"),
+        app_commands.Choice(name="Nach Nachrichten", value="messages"),
+        app_commands.Choice(name="Nach Sprachzeit", value="voice")
+    ]
+    
+    # Filter choices based on current input
+    filtered_types = [
+        choice for choice in types 
+        if current.lower() in choice.name.lower() or current.lower() in choice.value.lower()
+    ]
+    
+    return filtered_types
+
+@tree.command(name="add_xp", description="Fügt einem Nutzer XP hinzu (nur für Admins)")
+@app_commands.checks.has_permissions(administrator=True)
+async def add_xp_command(interaction: discord.Interaction, user: discord.Member, amount: int):
+    """Admin command to add XP to a user"""
+    if amount <= 0:
+        await interaction.response.send_message("Der XP-Betrag muss positiv sein!", ephemeral=True)
+        return
+    
+    # Add XP
+    leveled_up, new_level = await add_xp(user.id, user.display_name, amount)
+    
+    # Create response
+    embed = discord.Embed(
+        title="XP hinzugefügt",
+        description=f"{amount} XP wurden zu {user.mention} hinzugefügt.",
+        color=discord.Color.green()
+    )
+    
+    if leveled_up:
+        embed.add_field(name="Level Up!", value=f"{user.display_name} ist jetzt Level {new_level}!")
+    
+    await interaction.response.send_message(embed=embed)
+    
+    # Notify user
+    try:
+        user_embed = discord.Embed(
+            title="XP erhalten!",
+            description=f"Du hast {amount} XP von einem Administrator erhalten!",
+            color=discord.Color.blue()
+        )
+        if leveled_up:
+            user_embed.add_field(name="Level Up!", value=f"Du bist jetzt Level {new_level}!")
+        await user.send(embed=user_embed)
+    except discord.Forbidden:
+        pass  # User has DMs closed
+
+# Add level rewards task to periodically reward voice activity
+@tasks.loop(minutes=15)
+async def reward_voice_activity():
+    """Periodically rewards users for voice activity without waiting for them to leave"""
+    log.info("Rewarding ongoing voice activity...")
+    
+    # Copy dict to avoid modification during iteration
+    voice_users_copy = active_voice_users.copy()
+    
+    for user_id, channels in voice_users_copy.items():
+        for channel_id, start_time in channels.items():
+            # Calculate duration so far
+            current_time = int(time.time())
+            duration = current_time - start_time
+            
+            # Only reward if they've been in channel for at least 5 minutes
+            if duration >= 300:  # 5 minutes in seconds
+                # Award XP (3 per minute, max for 15 minutes = 45 XP)
+                minutes = min(15, max(1, int(duration / 60)))
+                xp_earned = minutes * 3
+                
+                # Get user's display name
+                guild_id = bot.get_channel(int(channel_id)).guild.id if bot.get_channel(int(channel_id)) else None
+                if guild_id:
+                    guild = bot.get_guild(guild_id)
+                    if guild:
+                        member = guild.get_member(int(user_id))
+                        if member:
+                            # Award XP without ending session
+                            leveled_up, new_level = await add_xp(user_id, member.display_name, xp_earned)
+                            
+                            # Update voice time in database
+                            conn = sqlite3.connect(DB_PATH)
+                            cursor = conn.cursor()
+                            cursor.execute(
+                                "UPDATE user_levels SET voice_time = voice_time + ? WHERE user_id = ?",
+                                (duration, str(user_id))
+                            )
+                            conn.commit()
+                            conn.close()
+                            
+                            # Reset timer by updating start time
+                            active_voice_users[user_id][channel_id] = current_time
+                            
+                            # Notify level up
+                            if leveled_up and member:
+                                try:
+                                    level_up_embed = discord.Embed(
+                                        title="🎉 Level Up!",
+                                        description=f"Congratulations! You've reached **Level {new_level}**!",
+                                        color=discord.Color.gold()
+                                    )
+                                    await member.send(embed=level_up_embed)
+                                except discord.Forbidden:
+                                    pass  # User has DMs closed
+
+@tree.command(name="reset_levels", description="Setzt alle Level zurück (nur für Admins)")
+@app_commands.checks.has_permissions(administrator=True)
+async def reset_levels(interaction: discord.Interaction, confirm: bool):
+    """Admin command to reset all levels"""
+    if not confirm:
+        await interaction.response.send_message("Um alle Level zurückzusetzen, führe den Befehl mit `confirm=True` aus.", ephemeral=True)
+        return
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM user_levels")
+    cursor.execute("DELETE FROM voice_sessions")
+    conn.commit()
+    conn.close()
+    
+    # Clear active voice sessions
+    active_voice_users.clear()
+    
+    await interaction.response.send_message("Alle Level wurden zurückgesetzt!", ephemeral=True)
+
+@tree.command(name="set_level", description="Setzt das Level eines Nutzers (nur für Admins)")
+@app_commands.checks.has_permissions(administrator=True)
+async def set_level(interaction: discord.Interaction, user: discord.Member, level: int):
+    """Admin command to set a user's level"""
+    if level < 0:
+        await interaction.response.send_message("Das Level muss positiv sein!", ephemeral=True)
+        return
+    
+    # Cap level at MAX_LEVEL
+    if level > MAX_LEVEL:
+        level = MAX_LEVEL
+        await interaction.response.send_message(f"Level auf Maximum ({MAX_LEVEL}) begrenzt. {user.display_name} wurde auf Level {MAX_LEVEL} gesetzt.", ephemeral=True)
+        return
+    
+    # Calculate XP based on level
+    xp = get_xp_for_level(level)
+    
+    # Ensure user exists in DB
+    await ensure_user_in_db(user.id, user.display_name)
+    
+    # Update level and XP
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE user_levels SET level = ?, xp = ? WHERE user_id = ?",
+        (level, xp, str(user.id))
+    )
+    conn.commit()
+    conn.close()
+    
+    await interaction.response.send_message(f"{user.display_name} wurde auf Level {level} gesetzt!", ephemeral=True)
+
+@tree.command(name="level_stats", description="Zeigt Statistiken über das Level-System")
+@app_commands.checks.has_permissions(administrator=True)
+async def level_stats(interaction: discord.Interaction):
+    """Admin command to view level system statistics"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Get total users
+    cursor.execute("SELECT COUNT(*) FROM user_levels")
+    total_users = cursor.fetchone()[0]
+    
+    # Get total XP
+    cursor.execute("SELECT SUM(xp) FROM user_levels")
+    total_xp = cursor.fetchone()[0] or 0
+    
+    # Get total messages
+    cursor.execute("SELECT SUM(message_count) FROM user_levels")
+    total_messages = cursor.fetchone()[0] or 0
+    
+    # Get total voice time
+    cursor.execute("SELECT SUM(voice_time) FROM user_levels")
+    total_voice_time = cursor.fetchone()[0] or 0
+    
+    # Get average level
+    cursor.execute("SELECT AVG(level) FROM user_levels")
+    avg_level = cursor.fetchone()[0] or 0
+    
+    # Get highest level
+    cursor.execute("SELECT MAX(level), user_id FROM user_levels")
+    highest_level, highest_level_user_id = cursor.fetchone() or (0, None)
+    
+    # Get active voice sessions
+    active_sessions = sum(len(channels) for channels in active_voice_users.values())
+    
+    conn.close()
+    
+    # Format voice time
+    voice_hours = total_voice_time // 3600
+    voice_minutes = (total_voice_time % 3600) // 60
+    
+    # Create embed
+    embed = discord.Embed(
+        title="📊 Level-System Statistiken",
+        color=discord.Color.blue()
+    )
+    
+    embed.add_field(name="Registrierte Nutzer", value=str(total_users), inline=True)
+    embed.add_field(name="Gesamt-XP", value=f"{total_xp:,}", inline=True)
+    embed.add_field(name="Durchschnittslevel", value=f"{avg_level:.1f}", inline=True)
+    
+    embed.add_field(name="Gesamt-Nachrichten", value=f"{total_messages:,}", inline=True)
+    embed.add_field(name="Gesamt-Sprachzeit", value=f"{voice_hours}h {voice_minutes}m", inline=True)
+    embed.add_field(name="Aktive Sprachsitzungen", value=str(active_sessions), inline=True)
+    
+    if highest_level_user_id:
+        member = interaction.guild.get_member(int(highest_level_user_id))
+        if member:
+            embed.add_field(name="Höchstes Level", value=f"{member.mention} (Level {highest_level})", inline=False)
+    
+    await interaction.response.send_message(embed=embed)
 
 bot.run(DISCORD_TOKEN)

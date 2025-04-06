@@ -12,6 +12,14 @@ Analyze YouTube videos for stamina management during wars and events:
 - Provides timestamps for critical moments.
 - Offers humorous and motivational feedback based on performance.
 
+### 🏆 **Level-System**
+A comprehensive user activity tracking and rewards system:
+- Users earn XP through text messages and voice chat activity
+- Progress through 10 levels with increasing XP requirements
+- Level numbers display automatically in user nicknames
+- Track individual progress and compete on server-wide leaderboards
+- Rewards both active chatters and voice participants
+
 ### 📊 **Google Sheets Integration**
 Seamlessly integrates with Google Sheets to manage and update:
 - **Payout lists**: Automatically updates participation stats for wars and events.
@@ -33,6 +41,7 @@ Seamlessly integrates with Google Sheets to manage and update:
 
 ### 🔔 **Channel Monitoring**
 - Monitors activity in designated channels.
+- Sends notifications when channels have been inactive for too long.
 
 ### 🏖️ **Absence Tracking**
 - Allows users to submit their absence periods.
@@ -52,6 +61,12 @@ Seamlessly integrates with Google Sheets to manage and update:
 - `/changelog`: View the latest changelog entry.
 - `/stats`: Display your stats from the Google Sheet.
 - `/abwesenheit`: Submit your absence period.
+- `/level [user]`: Display the current level and XP of a user (optionally another user).
+- `/leaderboard [type]`: Show top players by level, messages, or voice time.
+- `/add_xp <user> <amount>`: (Admin) Add a specific amount of XP to a user.
+- `/reset_levels <confirm>`: (Admin) Reset all levels and XP (requires confirmation).
+- `/set_level <user> <level>`: (Admin) Manually set a user's level (max. 10).
+- `/level_stats`: (Admin) Display general statistics about the level system.
 - `/set_role <role> <icon> <prio>`: Configure icons and priorities for roles.
 - `/clear_role <role>`: Remove the icon and priority for a role.
 - `/list_roles`: List all roles with their icons and priorities.
@@ -118,6 +133,16 @@ Seamlessly integrates with Google Sheets to manage and update:
 - Use `/set_role` to assign icons and priorities to roles.
 - Use `/set_pattern` to define how nicknames should be formatted.
 
+### Level System
+- The level system starts automatically when the bot is first launched
+- XP is automatically awarded for messages (1 XP) and voice activity (3 XP per minute)
+- You can customize how levels appear in usernames using `/set_pattern`, recommended patterns:
+  - `{name} ({level}) [{icons}]` (default)
+  - `{name} | ({level}) [{icons}]`
+  - `[{icons}] {name} ({level})`
+- Administrators can manage the system with `/add_xp`, `/set_level`, and `/reset_levels`
+- Level progress is stored in a SQLite database
+
 ### Channel Monitoring
 - Use `/set_check_channel` to monitor a channel for inactivity.
 - Use `/set_error_log_channel` to log errors.
@@ -141,4 +166,3 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 If you encounter any issues or have suggestions, please open an issue on the [GitHub repository](https://github.com/Katze719/new-world-stamina-checker).
 
 Happy gaming! 🎮✨
-
