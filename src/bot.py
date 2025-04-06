@@ -422,6 +422,9 @@ async def on_message(message: discord.Message):
                 color=discord.Color.gold()
             )
             await message.author.send(embed=level_up_embed)
+            
+            # Update nickname with new level
+            await update_member_nickname(message.author)
         except discord.Forbidden:
             # User has DMs closed, notify in channel
             level_up_embed = discord.Embed(
@@ -1747,7 +1750,18 @@ async def end_voice_session(user_id, channel_id, username):
         # Award XP (3 XP per minute with a minimum of 1)
         minutes = max(1, int(duration / 60))
         xp_earned = minutes * 3
-        return await add_xp(user_id, username, xp_earned)
+        leveled_up, new_level = await add_xp(user_id, username, xp_earned)
+        
+        # If level up occurred, update nickname
+        if leveled_up:
+            # Find the guild and member object
+            channel = bot.get_channel(int(channel_id))
+            if channel and channel.guild:
+                member = channel.guild.get_member(int(user_id))
+                if member:
+                    await update_member_nickname(member)
+        
+        return leveled_up, new_level
     
     return False, None
 
@@ -1912,6 +1926,10 @@ async def add_xp_command(interaction: discord.Interaction, user: discord.Member,
     # Add XP
     leveled_up, new_level = await add_xp(user.id, user.display_name, amount)
     
+    # Update nickname if level up occurred
+    if leveled_up:
+        await update_member_nickname(user)
+    
     # Create response
     embed = discord.Embed(
         title="XP hinzugefügt",
@@ -1981,7 +1999,7 @@ async def reward_voice_activity():
                             # Reset timer by updating start time
                             active_voice_users[user_id][channel_id] = current_time
                             
-                            # Notify level up
+                            # Notify level up and update nickname
                             if leveled_up and member:
                                 try:
                                     level_up_embed = discord.Embed(
@@ -1990,6 +2008,9 @@ async def reward_voice_activity():
                                         color=discord.Color.gold()
                                     )
                                     await member.send(embed=level_up_embed)
+                                    
+                                    # Update nickname with new level
+                                    await update_member_nickname(member)
                                 except discord.Forbidden:
                                     pass  # User has DMs closed
 
@@ -2042,6 +2063,9 @@ async def set_level(interaction: discord.Interaction, user: discord.Member, leve
     )
     conn.commit()
     conn.close()
+    
+    # Update nickname with new level
+    await update_member_nickname(user)
     
     await interaction.response.send_message(f"{user.display_name} wurde auf Level {level} gesetzt!", ephemeral=True)
 
