@@ -723,6 +723,13 @@ async def migrate_nickname(member: discord.Member):
     Spezielle Funktion für die Migration vom alten Format "Name [icons]" zum neuen Format "Name (level) [icons]".
     Erkennt das alte Format und extrahiert korrekt den Namen, ohne die Icons zu duplizieren.
     """
+    # Prüfe zuerst, ob der Name bereits das neue Format hat
+    pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
+    regex = pattern_to_regex(pattern)
+    if regex.match(member.display_name):
+        # Bereits im neuen Format, keine Änderung notwendig
+        return
+
     # Extrahiere Icons aus den Rollen
     role_settings = role_name_update_settings_cache.get("role_settings", {})
     icons_with_prio = []
@@ -752,21 +759,10 @@ async def migrate_nickname(member: discord.Member):
         # Altes Format erkannt - extrahiere nur den Namen ohne Icons
         base_name = match.group(1).strip()
     else:
-        # Wenn nicht im alten Format, versuche es mit dem neuen Pattern
-        pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
-        regex = pattern_to_regex(pattern)
-        match = regex.match(member.display_name)
-        if match:
-            try:
-                base_name = match.group("name").strip()
-            except IndexError:
-                base_name = member.display_name
-        else:
-            # Falls kein bekanntes Format, nimm den ganzen Namen
-            base_name = member.display_name
+        # Falls kein bekanntes Format, nimm den ganzen Namen
+        base_name = member.display_name
     
     # Wende neues Format an
-    pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
     expected_nick = pattern.format(icons=icons, name=base_name, level=level_emoji)
     
     # Längenbegrenzung beachten
@@ -800,9 +796,23 @@ async def migrate_all_users(interaction: discord.Interaction):
     
     if guild:
         migrated_count = 0
+        already_migrated = 0
+        
+        # Aktuelles Pattern für die Erkennung bereits migrierter Nutzer
+        pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
+        regex = pattern_to_regex(pattern)
+        
+        # Altes Format für die Erkennung zu migrierender Nutzer
+        old_format_regex = re.compile(r'^(.*?)\s*\[.*\]$')
+        
         for member in guild.members:
-            # Alte Namen im Format "Name [icons]" erkennen und aktualisieren
-            old_format_regex = re.compile(r"^(.*?)\s*\[(.*?)\]$")
+            # Prüfe, ob bereits im neuen Format
+            if regex.match(member.display_name):
+                already_migrated += 1
+                await update_member_in_spreadsheet(member)
+                continue
+                
+            # Alte Namen im Format "Name [icons]" migrieren
             if old_format_regex.match(member.display_name):
                 await migrate_nickname(member)
                 migrated_count += 1
@@ -813,7 +823,11 @@ async def migrate_all_users(interaction: discord.Interaction):
             await update_member_in_spreadsheet(member)
     
     await spreadsheet.memberlist.sort_member(spreadsheet_acc, spreadsheet_role_settings_manager)
-    await interaction.edit_original_response(content=f"Migration abgeschlossen! {migrated_count} Nutzernamen wurden vom alten Format migriert.")
+    await interaction.edit_original_response(
+        content=f"Migration abgeschlossen!\n"
+               f"• {migrated_count} Nutzernamen wurden vom alten Format migriert\n"
+               f"• {already_migrated} Nutzer waren bereits im neuen Format"
+    )
 
 async def update_member_in_spreadsheet(member: discord.Member):
     def parse_name(member : discord.Member):
@@ -826,6 +840,21 @@ async def update_member_in_spreadsheet(member: discord.Member):
             except (IndexError, KeyError):
                 return member.display_name
         else:
+            # Fallback: Versuche es mit dem alten Pattern ohne Level
+            old_pattern = "{name} [{icons}]"
+            old_regex = pattern_to_regex(old_pattern)
+            old_match = old_regex.match(member.display_name)
+            if old_match:
+                try:
+                    return old_match.group("name").strip()
+                except (IndexError, KeyError):
+                    pass
+            
+            # Einfacher Fallback: Suche nach Name vor eckigen Klammern
+            bracket_match = re.match(r'^(.*?)\s*\[.*\]$', member.display_name)
+            if bracket_match:
+                return bracket_match.group(1).strip()
+                
             return member.display_name
 
     await spreadsheet.memberlist.update_member(spreadsheet_acc, member, parse_name, spreadsheet_role_settings_manager)
@@ -1232,6 +1261,21 @@ async def check_for_raidhelpers():
             except (IndexError, KeyError):
                 return member.display_name
         else:
+            # Fallback: Versuche es mit dem alten Pattern ohne Level
+            old_pattern = "{name} [{icons}]"
+            old_regex = pattern_to_regex(old_pattern)
+            old_match = old_regex.match(member.display_name)
+            if old_match:
+                try:
+                    return old_match.group("name").strip()
+                except (IndexError, KeyError):
+                    pass
+            
+            # Einfacher Fallback: Suche nach Name vor eckigen Klammern
+            bracket_match = re.match(r'^(.*?)\s*\[.*\]$', member.display_name)
+            if bracket_match:
+                return bracket_match.group(1).strip()
+                
             return member.display_name
 
     await spreadsheet.payoutlist.update_payoutlist(bot, spreadsheet_acc, parse_name, spreadsheet_role_settings_manager, gp_channel_manager)
@@ -1277,6 +1321,21 @@ async def stats(interaction: discord.Interaction):
             except (IndexError, KeyError):
                 return member.display_name
         else:
+            # Fallback: Versuche es mit dem alten Pattern ohne Level
+            old_pattern = "{name} [{icons}]"
+            old_regex = pattern_to_regex(old_pattern)
+            old_match = old_regex.match(member.display_name)
+            if old_match:
+                try:
+                    return old_match.group("name").strip()
+                except (IndexError, KeyError):
+                    pass
+            
+            # Einfacher Fallback: Suche nach Name vor eckigen Klammern
+            bracket_match = re.match(r'^(.*?)\s*\[.*\]$', member.display_name)
+            if bracket_match:
+                return bracket_match.group(1).strip()
+                
             return member.display_name
 
     await spreadsheet.stats.stats(spreadsheet_acc, interaction, parse_name, spreadsheet_role_settings_manager)
@@ -1487,6 +1546,21 @@ async def abwesenheit(interaction: discord.Interaction):
             except (IndexError, KeyError):
                 return member.display_name
         else:
+            # Fallback: Versuche es mit dem alten Pattern ohne Level
+            old_pattern = "{name} [{icons}]"
+            old_regex = pattern_to_regex(old_pattern)
+            old_match = old_regex.match(member.display_name)
+            if old_match:
+                try:
+                    return old_match.group("name").strip()
+                except (IndexError, KeyError):
+                    pass
+            
+            # Einfacher Fallback: Suche nach Name vor eckigen Klammern
+            bracket_match = re.match(r'^(.*?)\s*\[.*\]$', member.display_name)
+            if bracket_match:
+                return bracket_match.group(1).strip()
+                
             return member.display_name
         
     modal.fake_init(spreadsheet_acc, parse_name, spreadsheet_role_settings_manager)
