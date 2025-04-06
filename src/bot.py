@@ -718,6 +718,103 @@ async def update_member_nickname(member: discord.Member):
         except discord.NotFound:
             log.error(f"Member {member} wurde nicht gefunden (vermutlich gekickt).")
 
+async def migrate_nickname(member: discord.Member):
+    """
+    Spezielle Funktion für die Migration vom alten Format "Name [icons]" zum neuen Format "Name (level) [icons]".
+    Erkennt das alte Format und extrahiert korrekt den Namen, ohne die Icons zu duplizieren.
+    """
+    # Extrahiere Icons aus den Rollen
+    role_settings = role_name_update_settings_cache.get("role_settings", {})
+    icons_with_prio = []
+    for role in member.roles:
+        role_id = str(role.id)
+        if role_id in role_settings:
+            settings = role_settings[role_id]
+            icon = settings.get("icon", "")
+            prio = settings.get("prio", 0)
+            icons_with_prio.append((prio, icon))
+    
+    icons_with_prio.sort(key=lambda x: x[0], reverse=True)
+    icons = "".join(icon for prio, icon in icons_with_prio)
+    
+    # Get user's level emoji
+    level_data = await get_user_level_data(member.id)
+    level = 0
+    if level_data:
+        level = level_data["level"]
+    level_emoji = get_level_emoji(level)
+    
+    # Regex für das alte Format "Name [icons]"
+    old_format_regex = re.compile(r"^(.*?)\s*\[(.*?)\]$")
+    match = old_format_regex.match(member.display_name)
+    
+    if match:
+        # Altes Format erkannt - extrahiere nur den Namen ohne Icons
+        base_name = match.group(1).strip()
+    else:
+        # Wenn nicht im alten Format, versuche es mit dem neuen Pattern
+        pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
+        regex = pattern_to_regex(pattern)
+        match = regex.match(member.display_name)
+        if match:
+            try:
+                base_name = match.group("name").strip()
+            except IndexError:
+                base_name = member.display_name
+        else:
+            # Falls kein bekanntes Format, nimm den ganzen Namen
+            base_name = member.display_name
+    
+    # Wende neues Format an
+    pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
+    expected_nick = pattern.format(icons=icons, name=base_name, level=level_emoji)
+    
+    # Längenbegrenzung beachten
+    if len(expected_nick) > 32:
+        fixed_part = pattern.format(icons=icons, name="", level=level_emoji)
+        allowed_name_length = 32 - len(fixed_part)
+        if allowed_name_length < 0:
+            allowed_name_length = 0
+        base_name = base_name[:allowed_name_length]
+        expected_nick = pattern.format(icons=icons, name=base_name, level=level_emoji)
+    
+    # Aktualisiere den Nicknamen
+    if member.display_name != expected_nick:
+        try:
+            log.info(f"Migration: Nickname von {member.display_name} geändert zu {expected_nick}")
+            await member.edit(nick=expected_nick)
+        except discord.Forbidden:
+            log.error(f"Konnte Nickname von {member.display_name} nicht ändern - fehlende Berechtigungen.")
+        except discord.NotFound:
+            log.error(f"Member {member} wurde nicht gefunden (vermutlich gekickt).")
+
+@tree.command(name="migrate_all_users", description="Migriert alle Nutzernamen vom alten Format zum neuen Format mit Level")
+@app_commands.checks.has_permissions(administrator=True)
+async def migrate_all_users(interaction: discord.Interaction):
+    """
+    Migriert alle Nutzernamen vom alten Format 'Name [icons]' zum neuen Format 'Name (level) [icons]',
+    ohne die Icons zu duplizieren. Nutzt den speziellen Migrationsalgorithmus.
+    """
+    await interaction.response.send_message("Migriere alle Nutzernamen vom alten zum neuen Format...", ephemeral=True)
+    guild = interaction.guild
+    
+    if guild:
+        migrated_count = 0
+        for member in guild.members:
+            # Alte Namen im Format "Name [icons]" erkennen und aktualisieren
+            old_format_regex = re.compile(r"^(.*?)\s*\[(.*?)\]$")
+            if old_format_regex.match(member.display_name):
+                await migrate_nickname(member)
+                migrated_count += 1
+            else:
+                # Normale Aktualisierung für andere Namen
+                await update_member_nickname(member)
+            
+            await update_member_in_spreadsheet(member)
+    
+    await spreadsheet.memberlist.sort_member(spreadsheet_acc, spreadsheet_role_settings_manager)
+    await interaction.edit_original_response(content=f"Migration abgeschlossen! {migrated_count} Nutzernamen wurden vom alten Format migriert.")
+
 async def update_member_in_spreadsheet(member: discord.Member):
     def parse_name(member : discord.Member):
         pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
