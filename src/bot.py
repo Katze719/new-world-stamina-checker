@@ -74,9 +74,42 @@ written_raidhelpers_manager = jsonFileManager.JsonFileManager(WRITTEN_RAIDHELPER
 # Initialize SQLite database for level system
 DB_PATH = "./level_system.db"
 
-# XP requirements for each level (global constants)
-XP_REQUIREMENTS = [100, 250, 500, 800, 1200, 1700, 2300, 3000, 4000, 5000]
-MAX_LEVEL = 10
+# Level system constants
+MAX_LEVEL = 100
+
+def get_xp_requirement(level):
+    """Berechnet die XP-Anforderung für ein bestimmtes Level mit einer mathematischen Formel.
+    Verwendet eine exponentiell steigende Formel: 100 * (1.1^(level-1))
+    Level 1: 100 XP
+    Level 10: ~236 XP
+    Level 50: ~10,000 XP
+    Level 100: ~138,000 XP"""
+    if level <= 0:
+        return 0
+    
+    # Basiswert für Level 1
+    base_xp = 100
+    
+    # Wachstumsrate pro Level
+    growth_rate = 1.1
+    
+    # Exponentielles Wachstum
+    return int(base_xp * (growth_rate ** (level - 1)))
+
+def get_xp_for_level(level):
+    """Calculate total XP needed for a specific level"""
+    if level <= 0:
+        return 0
+    
+    # Cap at max level
+    if level > MAX_LEVEL:
+        level = MAX_LEVEL
+    
+    # Sum all XP requirements up to this level
+    total_xp = 0
+    for i in range(1, level + 1):
+        total_xp += get_xp_requirement(i)
+    return total_xp
 
 def init_level_db():
     conn = sqlite3.connect(DB_PATH)
@@ -642,21 +675,9 @@ def pattern_to_regex(pattern: str) -> re.Pattern:
     return re.compile("^" + escaped + "$")
 
 def get_level_emoji(level: int) -> str:
-    """Returns the emoji representation of a level number."""
-    level_emojis = {
-        0: "0",
-        1: "1",
-        2: "2",
-        3: "3",
-        4: "4",
-        5: "5",
-        6: "6",
-        7: "7",
-        8: "8",
-        9: "9",
-        10: "10"
-    }
-    return level_emojis.get(level, "X")
+    """Returns the string representation of a level number."""
+    # Für alle Level geben wir einfach die Zahl als String zurück
+    return str(level)
 
 async def update_member_nickname(member: discord.Member):
     """
@@ -1588,7 +1609,10 @@ def get_xp_for_level(level):
         level = MAX_LEVEL
     
     # Sum all XP requirements up to this level
-    return sum(XP_REQUIREMENTS[:level])
+    total_xp = 0
+    for i in range(1, level + 1):
+        total_xp += get_xp_requirement(i)
+    return total_xp
 
 def get_level_progress(current_xp):
     """Calculate level and progress based on XP"""
@@ -1596,10 +1620,11 @@ def get_level_progress(current_xp):
     accumulated_xp = 0
     
     # Determine level based on accumulated XP
-    for i, required_xp in enumerate(XP_REQUIREMENTS):
-        if current_xp >= accumulated_xp + required_xp:
-            level = i + 1
-            accumulated_xp += required_xp
+    for i in range(1, MAX_LEVEL + 1):
+        level_requirement = get_xp_requirement(i)
+        if current_xp >= accumulated_xp + level_requirement:
+            level = i
+            accumulated_xp += level_requirement
         else:
             break
             
@@ -1608,11 +1633,12 @@ def get_level_progress(current_xp):
         return MAX_LEVEL, 100, accumulated_xp, accumulated_xp
         
     # Calculate progress to next level
-    if level < len(XP_REQUIREMENTS):
-        next_level_xp = accumulated_xp + XP_REQUIREMENTS[level]
+    if level < MAX_LEVEL:
+        next_level_req = get_xp_requirement(level + 1)
         xp_progress = current_xp - accumulated_xp
-        progress = round((xp_progress / XP_REQUIREMENTS[level]) * 100) if XP_REQUIREMENTS[level] > 0 else 100
-        return level, progress, accumulated_xp, next_level_xp
+        progress = round((xp_progress / next_level_req) * 100) if next_level_req > 0 else 100
+        next_level_total = accumulated_xp + next_level_req
+        return level, progress, accumulated_xp, next_level_total
     else:
         return level, 100, accumulated_xp, accumulated_xp
 
