@@ -645,23 +645,19 @@ async def on_voice_state_update(member, before, after):
 
 async def can_user_speak_in_channel(member, channel):
     """Check if a user can speak in a voice channel"""
+    # Check if channel is a voice channel
+    if not isinstance(channel, (discord.VoiceChannel, discord.StageChannel)):
+        return False
+    
     # Check channel type
     if isinstance(channel, discord.StageChannel) and not member.guild_permissions.administrator:
         # In stage channels, only speakers can talk
-        # Check if user is a speaker
-        stage_instance = None
-        for instance in member.guild.stage_instances:
-            if instance.channel.id == channel.id:
-                stage_instance = instance
-                break
-        
-        if stage_instance:
-            # Only speakers can talk in stage channels
-            return False  # By default, assume they're audience
+        # By default, assume they're audience in a stage channel
+        return False
     
     # Check permissions
     permissions = channel.permissions_for(member)
-    return permissions.speak
+    return permissions.speak and permissions.connect and not permissions.deafened
 
 # Function to track when a user speaks in voice
 async def record_user_voice_activity(user_id, channel_id):
@@ -2062,8 +2058,17 @@ async def reward_voice_activity():
             if activity_data.get("is_muted", False) or not activity_data.get("can_speak", True) or activity_data.get("is_deafened", False):
                 continue
             
-            # Calculate duration so far since start
+            # Calculate duration since last activity
             current_time = int(time.time())
+            last_spoke_time = activity_data.get("last_spoke", start_time)
+            time_since_spoke = current_time - last_spoke_time
+            
+            # Only reward if they've shown activity in the last 60 minutes (sent a text message while in voice)
+            if time_since_spoke > 3600:  # 60 minutes in seconds
+                log.info(f"User {user_id} hasn't shown activity in the last 60 minutes, skipping XP reward")
+                continue
+                
+            # Calculate duration so far since start
             duration = current_time - start_time
             
             # Only reward if they've been in channel for at least 5 minutes
