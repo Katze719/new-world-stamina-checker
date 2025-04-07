@@ -608,15 +608,8 @@ async def on_voice_state_update(member, before, after):
         
         # Notify about level up
         if leveled_up:
-            try:
-                level_up_embed = discord.Embed(
-                    title="🎉 Level Up!",
-                    description=f"Congratulations! You've reached **Level {new_level}**!",
-                    color=discord.Color.gold()
-                )
-                await member.send(embed=level_up_embed)
-            except discord.Forbidden:
-                pass  # User has DMs closed
+            # Update username with new level
+            await update_member_nickname(member)
     
     # User switched voice channels
     elif before.channel is not None and after.channel is not None and before.channel.id != after.channel.id:
