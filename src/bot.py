@@ -146,6 +146,8 @@ init_level_db()
 
 # Store active voice users {user_id: {channel_id: start_time}}
 active_voice_users = {}
+# Track user activity in voice channels {user_id: {channel_id: {"start_time": timestamp, "last_spoke": timestamp, "is_muted": bool}}}
+voice_activity_tracker = {}
 
 role_name_update_settings_cache = {}
 
@@ -450,6 +452,10 @@ async def on_message(message: discord.Message):
     if leveled_up:
         await update_member_nickname(message.author)
     
+    # Check if user is in a voice channel and record activity
+    if message.author.voice and message.author.voice.channel:
+        await record_user_voice_activity(message.author.id, message.author.voice.channel.id)
+    
     watch_user_exctaction_channel = (await gp_channel_manager.load()).get("watch_user_exctaction_channel", None)
     if watch_user_exctaction_channel and str(message.channel.id) == str(watch_user_exctaction_channel):
         users = await extractUsers(message)    
@@ -592,7 +598,9 @@ async def on_voice_state_update(member, before, after):
     
     # User joined a voice channel
     if before.channel is None and after.channel is not None:
-        await start_voice_session(member.id, after.channel.id)
+        # Check if user can speak in the channel
+        can_speak = await can_user_speak_in_channel(member, after.channel)
+        await start_voice_session(member.id, after.channel.id, after.self_mute, after.self_deaf, after.mute, after.deaf, can_speak)
     
     # User left a voice channel
     elif before.channel is not None and after.channel is None:
@@ -615,13 +623,165 @@ async def on_voice_state_update(member, before, after):
         # End previous session
         await end_voice_session(member.id, before.channel.id, member.display_name)
         # Start new session
-        await start_voice_session(member.id, after.channel.id)
+        can_speak = await can_user_speak_in_channel(member, after.channel)
+        await start_voice_session(member.id, after.channel.id, after.self_mute, after.self_deaf, after.mute, after.deaf, can_speak)
     
-    # User muted/unmuted
-    elif before.channel is not None and after.channel is not None and before.self_mute != after.self_mute:
-        # We could add additional tracking here for when users mute/unmute
-        # For now, we'll keep tracking as long as they're in the channel
-        pass
+    # User mute/deaf status changed
+    elif before.channel is not None and after.channel is not None and (before.self_mute != after.self_mute or 
+                                                                       before.self_deaf != after.self_deaf or
+                                                                       before.mute != after.mute or
+                                                                       before.deaf != after.deaf):
+        # Update mute/deaf status in the tracker
+        if member.id in voice_activity_tracker and str(before.channel.id) in voice_activity_tracker[member.id]:
+            voice_activity_tracker[member.id][str(before.channel.id)]["is_muted"] = after.self_mute or after.mute
+            voice_activity_tracker[member.id][str(before.channel.id)]["is_deafened"] = after.self_deaf or after.deaf
+            
+            log_message = f"User {member.display_name} status changed in channel {before.channel.name}: "
+            if after.self_mute:
+                log_message += "self-muted "
+            if after.mute:
+                log_message += "server-muted "
+            if after.self_deaf:
+                log_message += "self-deafened "
+            if after.deaf:
+                log_message += "server-deafened "
+            if not any([after.self_mute, after.mute, after.self_deaf, after.deaf]):
+                log_message += "all clear "
+            
+            log.info(log_message)
+
+async def can_user_speak_in_channel(member, channel):
+    """Check if a user can speak in a voice channel"""
+    # Check channel type
+    if isinstance(channel, discord.StageChannel) and not member.guild_permissions.administrator:
+        # In stage channels, only speakers can talk
+        # Check if user is a speaker
+        stage_instance = None
+        for instance in member.guild.stage_instances:
+            if instance.channel.id == channel.id:
+                stage_instance = instance
+                break
+        
+        if stage_instance:
+            # Only speakers can talk in stage channels
+            return False  # By default, assume they're audience
+    
+    # Check permissions
+    permissions = channel.permissions_for(member)
+    return permissions.speak
+
+# Function to track when a user speaks in voice
+async def record_user_voice_activity(user_id, channel_id):
+    """Record that a user spoke in a voice channel"""
+    if user_id in voice_activity_tracker and str(channel_id) in voice_activity_tracker[user_id]:
+        # Only record if they're allowed to speak
+        if voice_activity_tracker[user_id][str(channel_id)].get("can_speak", True) and not voice_activity_tracker[user_id][str(channel_id)].get("is_muted", False):
+            # Update the last time the user spoke
+            voice_activity_tracker[user_id][str(channel_id)]["last_spoke"] = int(time.time())
+            log.info(f"User {user_id} spoke in channel {channel_id}")
+        else:
+            log.info(f"User {user_id} tried to speak in channel {channel_id} but is muted or can't speak")
+
+async def start_voice_session(user_id, channel_id, is_self_muted=False, is_self_deafened=False, is_server_muted=False, is_server_deafened=False, can_speak=True):
+    """Record start of voice activity"""
+    # Store in memory for quick access
+    if user_id not in active_voice_users:
+        active_voice_users[user_id] = {}
+    
+    if user_id not in voice_activity_tracker:
+        voice_activity_tracker[user_id] = {}
+    
+    # Only start if not already in this channel
+    if channel_id not in active_voice_users[user_id]:
+        start_time = int(time.time())
+        active_voice_users[user_id][channel_id] = start_time
+        
+        # Initialize voice activity tracking
+        voice_activity_tracker[user_id][str(channel_id)] = {
+            "start_time": start_time,
+            "last_spoke": start_time,  # Assume they speak when joining for initial state
+            "is_muted": is_self_muted or is_server_muted,
+            "is_deafened": is_self_deafened or is_server_deafened,
+            "can_speak": can_speak
+        }
+        
+        # Store in database
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO voice_sessions (user_id, channel_id, start_time) VALUES (?, ?, ?)",
+            (str(user_id), str(channel_id), start_time)
+        )
+        conn.commit()
+        conn.close()
+
+async def end_voice_session(user_id, channel_id, username):
+    """End voice session and award XP"""
+    # Check if session exists
+    if user_id in active_voice_users and channel_id in active_voice_users[user_id]:
+        start_time = active_voice_users[user_id][channel_id]
+        end_time = int(time.time())
+        duration = end_time - start_time
+        
+        # Get activity data
+        activity_data = voice_activity_tracker.get(user_id, {}).get(str(channel_id), None)
+        was_active = False
+        
+        if activity_data:
+            # Check if user was active (unmuted, can speak, and spoke)
+            was_active = (not activity_data["is_muted"] and 
+                         activity_data.get("can_speak", True) and 
+                         not activity_data.get("is_deafened", False))
+            # Remove from activity tracker
+            if str(channel_id) in voice_activity_tracker[user_id]:
+                del voice_activity_tracker[user_id][str(channel_id)]
+            if not voice_activity_tracker[user_id]:
+                del voice_activity_tracker[user_id]
+        
+        # Remove from active sessions
+        del active_voice_users[user_id][channel_id]
+        if not active_voice_users[user_id]:
+            del active_voice_users[user_id]
+        
+        # Update database
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # Mark session as inactive
+        cursor.execute(
+            "UPDATE voice_sessions SET is_active = 0 WHERE user_id = ? AND channel_id = ? AND start_time = ?",
+            (str(user_id), str(channel_id), start_time)
+        )
+        
+        # Update voice time
+        cursor.execute(
+            "UPDATE user_levels SET voice_time = voice_time + ? WHERE user_id = ?",
+            (duration, str(user_id))
+        )
+        conn.commit()
+        conn.close()
+        
+        # Award XP only if user was active
+        if was_active:
+            # Award XP (3 XP per minute with a minimum of 1)
+            minutes = max(1, int(duration / 60))
+            xp_earned = minutes * 3
+            leveled_up, new_level = await add_xp(user_id, username, xp_earned)
+            
+            # If level up occurred, update nickname without notification
+            if leveled_up:
+                # Find the guild and member object
+                channel = bot.get_channel(int(channel_id))
+                if channel and channel.guild:
+                    member = channel.guild.get_member(int(user_id))
+                    if member:
+                        await update_member_nickname(member)
+            
+            return leveled_up, new_level
+        
+        return False, None
+    
+    return False, None
 
 def parse_changelog():
     try:
@@ -1704,76 +1864,6 @@ async def add_message_xp(user_id, username):
     xp_earned = 1
     return await add_xp(user_id, username, xp_earned)
 
-async def start_voice_session(user_id, channel_id):
-    """Record start of voice activity"""
-    # Store in memory for quick access
-    if user_id not in active_voice_users:
-        active_voice_users[user_id] = {}
-    
-    # Only start if not already in this channel
-    if channel_id not in active_voice_users[user_id]:
-        start_time = int(time.time())
-        active_voice_users[user_id][channel_id] = start_time
-        
-        # Store in database
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO voice_sessions (user_id, channel_id, start_time) VALUES (?, ?, ?)",
-            (str(user_id), str(channel_id), start_time)
-        )
-        conn.commit()
-        conn.close()
-
-async def end_voice_session(user_id, channel_id, username):
-    """End voice session and award XP"""
-    # Check if session exists
-    if user_id in active_voice_users and channel_id in active_voice_users[user_id]:
-        start_time = active_voice_users[user_id][channel_id]
-        end_time = int(time.time())
-        duration = end_time - start_time
-        
-        # Remove from active sessions
-        del active_voice_users[user_id][channel_id]
-        if not active_voice_users[user_id]:
-            del active_voice_users[user_id]
-        
-        # Update database
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        
-        # Mark session as inactive
-        cursor.execute(
-            "UPDATE voice_sessions SET is_active = 0 WHERE user_id = ? AND channel_id = ? AND start_time = ?",
-            (str(user_id), str(channel_id), start_time)
-        )
-        
-        # Update voice time
-        cursor.execute(
-            "UPDATE user_levels SET voice_time = voice_time + ? WHERE user_id = ?",
-            (duration, str(user_id))
-        )
-        conn.commit()
-        conn.close()
-        
-        # Award XP (3 XP per minute with a minimum of 1)
-        minutes = max(1, int(duration / 60))
-        xp_earned = minutes * 3
-        leveled_up, new_level = await add_xp(user_id, username, xp_earned)
-        
-        # If level up occurred, update nickname without notification
-        if leveled_up:
-            # Find the guild and member object
-            channel = bot.get_channel(int(channel_id))
-            if channel and channel.guild:
-                member = channel.guild.get_member(int(user_id))
-                if member:
-                    await update_member_nickname(member)
-        
-        return leveled_up, new_level
-    
-    return False, None
-
 @tree.command(name="level", description="Zeigt dein aktuelles Level und XP an")
 async def level(interaction: discord.Interaction, user: Optional[discord.Member] = None):
     """Show user level and XP"""
@@ -1959,11 +2049,30 @@ async def reward_voice_activity():
     
     # Copy dict to avoid modification during iteration
     voice_users_copy = active_voice_users.copy()
+    activity_tracker_copy = voice_activity_tracker.copy()
     
     for user_id, channels in voice_users_copy.items():
         for channel_id, start_time in channels.items():
-            # Calculate duration so far
+            # Check if user is in the activity tracker
+            if user_id not in activity_tracker_copy or str(channel_id) not in activity_tracker_copy[user_id]:
+                continue
+                
+            activity_data = activity_tracker_copy[user_id][str(channel_id)]
+            
+            # Only reward if user is not muted and can speak in the channel
+            if activity_data.get("is_muted", False) or not activity_data.get("can_speak", True) or activity_data.get("is_deafened", False):
+                continue
+                
+            # Calculate duration since last spoke
             current_time = int(time.time())
+            last_spoke_time = activity_data.get("last_spoke", start_time)
+            time_since_spoke = current_time - last_spoke_time
+            
+            # Only reward if they've spoken in the last 15 minutes
+            if time_since_spoke > 900:  # 15 minutes in seconds
+                continue
+                
+            # Calculate duration so far since start
             duration = current_time - start_time
             
             # Only reward if they've been in channel for at least 5 minutes
@@ -1979,6 +2088,18 @@ async def reward_voice_activity():
                     if guild:
                         member = guild.get_member(int(user_id))
                         if member:
+                            # Check if permissions have changed
+                            channel = bot.get_channel(int(channel_id))
+                            if channel:
+                                can_speak = await can_user_speak_in_channel(member, channel)
+                                # Update the can_speak status
+                                if user_id in voice_activity_tracker and str(channel_id) in voice_activity_tracker[user_id]:
+                                    voice_activity_tracker[user_id][str(channel_id)]["can_speak"] = can_speak
+                                
+                                # If they can't speak anymore, skip
+                                if not can_speak:
+                                    continue
+                            
                             # Award XP without ending session
                             leveled_up, new_level = await add_xp(user_id, member.display_name, xp_earned)
                             
@@ -1994,6 +2115,10 @@ async def reward_voice_activity():
                             
                             # Reset timer by updating start time
                             active_voice_users[user_id][channel_id] = current_time
+                            
+                            # Update activity tracking last spoke time if they were active
+                            if user_id in voice_activity_tracker and str(channel_id) in voice_activity_tracker[user_id]:
+                                voice_activity_tracker[user_id][str(channel_id)]["start_time"] = current_time
                             
                             # Update nickname if level up without notification
                             if leveled_up and member:
