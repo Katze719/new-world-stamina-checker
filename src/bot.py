@@ -1916,7 +1916,7 @@ async def level(interaction: discord.Interaction, user: Optional[discord.Member]
     if target_user.avatar:
         embed.set_thumbnail(url=target_user.avatar.url)
     
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @tree.command(name="leaderboard", description="Zeigt die Top-Spieler nach XP an")
 async def leaderboard(interaction: discord.Interaction, type: str = None):
@@ -1952,7 +1952,7 @@ async def leaderboard(interaction: discord.Interaction, type: str = None):
     conn.close()
     
     if not top_users:
-        await interaction.response.send_message("Noch keine Daten in der Leaderboard-Datenbank!")
+        await interaction.response.send_message("Noch keine Daten in der Leaderboard-Datenbank!", ephemeral=True)
         return
     
     # Create embed
@@ -1994,7 +1994,7 @@ async def leaderboard(interaction: discord.Interaction, type: str = None):
             inline=False
         )
     
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @leaderboard.autocomplete('type')
 async def leaderboard_autocomplete(interaction: discord.Interaction, current: str):
@@ -2038,7 +2038,7 @@ async def add_xp_command(interaction: discord.Interaction, user: discord.Member,
     if leveled_up:
         embed.add_field(name="Level Up!", value=f"{user.display_name} ist jetzt Level {new_level}!")
     
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # Add level rewards task to periodically reward voice activity
 @tasks.loop(minutes=15)
@@ -2231,6 +2231,6 @@ async def level_stats(interaction: discord.Interaction):
         if member:
             embed.add_field(name="Höchstes Level", value=f"{member.mention} (Level {highest_level})", inline=False)
     
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 bot.run(DISCORD_TOKEN)
