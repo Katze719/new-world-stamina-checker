@@ -657,7 +657,7 @@ async def can_user_speak_in_channel(member, channel):
     
     # Check permissions
     permissions = channel.permissions_for(member)
-    return permissions.speak and permissions.connect and not permissions.deafened
+    return permissions.speak and permissions.connect
 
 # Function to track when a user speaks in voice
 async def record_user_voice_activity(user_id, channel_id):
