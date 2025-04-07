@@ -446,26 +446,9 @@ async def on_message(message: discord.Message):
     # Add XP for sending a message
     leveled_up, new_level = await add_message_xp(message.author.id, message.author.display_name)
     
-    # Notify user of level up in DM
+    # Update nickname if level up without notification
     if leveled_up:
-        try:
-            level_up_embed = discord.Embed(
-                title="🎉 Level Up!",
-                description=f"Congratulations! You've reached **Level {new_level}**!",
-                color=discord.Color.gold()
-            )
-            await message.author.send(embed=level_up_embed)
-            
-            # Update nickname with new level
-            await update_member_nickname(message.author)
-        except discord.Forbidden:
-            # User has DMs closed, notify in channel
-            level_up_embed = discord.Embed(
-                title="🎉 Level Up!",
-                description=f"Congratulations {message.author.mention}! You've reached **Level {new_level}**!",
-                color=discord.Color.gold()
-            )
-            await message.channel.send(embed=level_up_embed, delete_after=10)
+        await update_member_nickname(message.author)
     
     watch_user_exctaction_channel = (await gp_channel_manager.load()).get("watch_user_exctaction_channel", None)
     if watch_user_exctaction_channel and str(message.channel.id) == str(watch_user_exctaction_channel):
@@ -1778,7 +1761,7 @@ async def end_voice_session(user_id, channel_id, username):
         xp_earned = minutes * 3
         leveled_up, new_level = await add_xp(user_id, username, xp_earned)
         
-        # If level up occurred, update nickname
+        # If level up occurred, update nickname without notification
         if leveled_up:
             # Find the guild and member object
             channel = bot.get_channel(int(channel_id))
@@ -1967,19 +1950,6 @@ async def add_xp_command(interaction: discord.Interaction, user: discord.Member,
         embed.add_field(name="Level Up!", value=f"{user.display_name} ist jetzt Level {new_level}!")
     
     await interaction.response.send_message(embed=embed)
-    
-    # Notify user
-    try:
-        user_embed = discord.Embed(
-            title="XP erhalten!",
-            description=f"Du hast {amount} XP von einem Administrator erhalten!",
-            color=discord.Color.blue()
-        )
-        if leveled_up:
-            user_embed.add_field(name="Level Up!", value=f"Du bist jetzt Level {new_level}!")
-        await user.send(embed=user_embed)
-    except discord.Forbidden:
-        pass  # User has DMs closed
 
 # Add level rewards task to periodically reward voice activity
 @tasks.loop(minutes=15)
@@ -2025,20 +1995,9 @@ async def reward_voice_activity():
                             # Reset timer by updating start time
                             active_voice_users[user_id][channel_id] = current_time
                             
-                            # Notify level up and update nickname
+                            # Update nickname if level up without notification
                             if leveled_up and member:
-                                try:
-                                    level_up_embed = discord.Embed(
-                                        title="🎉 Level Up!",
-                                        description=f"Congratulations! You've reached **Level {new_level}**!",
-                                        color=discord.Color.gold()
-                                    )
-                                    await member.send(embed=level_up_embed)
-                                    
-                                    # Update nickname with new level
-                                    await update_member_nickname(member)
-                                except discord.Forbidden:
-                                    pass  # User has DMs closed
+                                await update_member_nickname(member)
 
 @tree.command(name="reset_levels", description="Setzt alle Level zurück (nur für Admins)")
 @app_commands.checks.has_permissions(administrator=True)
