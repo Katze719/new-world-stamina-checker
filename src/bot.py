@@ -665,7 +665,13 @@ async def can_user_speak_in_channel(member, channel):
 
 # Function to track when a user speaks in voice
 async def record_user_voice_activity(user_id, channel_id):
-    """Record that a user spoke in a voice channel"""
+    """
+    Record that a user spoke in a voice channel.
+    
+    Note: This function is currently only called when a user sends a text message while in a voice channel,
+    not when they actually speak. Discord's API doesn't provide a direct event for voice activity.
+    To track actual speaking, you would need to use Discord's voice API and process audio data.
+    """
     if user_id in voice_activity_tracker and str(channel_id) in voice_activity_tracker[user_id]:
         # Only record if they're allowed to speak
         if voice_activity_tracker[user_id][str(channel_id)].get("can_speak", True) and not voice_activity_tracker[user_id][str(channel_id)].get("is_muted", False):
@@ -2055,17 +2061,9 @@ async def reward_voice_activity():
             # Only reward if user is not muted and can speak in the channel
             if activity_data.get("is_muted", False) or not activity_data.get("can_speak", True) or activity_data.get("is_deafened", False):
                 continue
-                
-            # Calculate duration since last spoke
-            current_time = int(time.time())
-            last_spoke_time = activity_data.get("last_spoke", start_time)
-            time_since_spoke = current_time - last_spoke_time
             
-            # Only reward if they've spoken in the last 15 minutes
-            if time_since_spoke > 900:  # 15 minutes in seconds
-                continue
-                
             # Calculate duration so far since start
+            current_time = int(time.time())
             duration = current_time - start_time
             
             # Only reward if they've been in channel for at least 5 minutes
@@ -2116,6 +2114,8 @@ async def reward_voice_activity():
                             # Update nickname if level up without notification
                             if leveled_up and member:
                                 await update_member_nickname(member)
+                                
+                            log.info(f"Awarded {xp_earned} XP to {member.display_name} for voice activity")
 
 @tree.command(name="reset_levels", description="Setzt alle Level zurück (nur für Admins)")
 @app_commands.checks.has_permissions(administrator=True)
