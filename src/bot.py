@@ -2315,11 +2315,12 @@ async def leaderboard_all(interaction: discord.Interaction, type: str = None):
                 inline=False
             )
         
-        pages.append(embed)
+        # Verpacke das Embed mit einer leeren Rollenliste für den Paginator
+        pages.append((embed, []))
     
     # Create view with pagination buttons
     view = Paginator(pages)
-    await interaction.response.send_message(embed=pages[0], view=view, ephemeral=True)
+    await interaction.response.send_message(embed=pages[0][0], view=view, ephemeral=True)
 
 @leaderboard_all.autocomplete('type')
 async def leaderboard_all_autocomplete(interaction: discord.Interaction, current: str):
