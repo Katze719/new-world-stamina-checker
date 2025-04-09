@@ -2238,4 +2238,104 @@ async def level_stats(interaction: discord.Interaction):
     
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
+@tree.command(name="leaderboard_all", description="Zeigt alle Nutzer nach XP sortiert an")
+async def leaderboard_all(interaction: discord.Interaction, type: str = None):
+    """Show complete server leaderboard with pagination"""
+    # Set default type if not specified
+    if type is None or type == "xp":
+        sort_by = "xp"
+        sort_field = "xp"
+        title = "⭐ Komplettes Leaderboard - Nach XP"
+    elif type == "level":
+        sort_by = "level"
+        sort_field = "level"
+        title = "🏆 Komplettes Leaderboard - Nach Level"
+    elif type == "messages":
+        sort_by = "messages"
+        sort_field = "message_count"
+        title = "💬 Komplettes Leaderboard - Nach Nachrichten"
+    elif type == "voice":
+        sort_by = "voice"
+        sort_field = "voice_time"
+        title = "🎙️ Komplettes Leaderboard - Nach Sprachzeit"
+    else:
+        # Default to XP if an invalid option is provided
+        sort_by = "xp"
+        sort_field = "xp"
+        title = "⭐ Komplettes Leaderboard - Nach XP"
+    
+    # Get all users from database
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(f"SELECT user_id, username, xp, level, message_count, voice_time FROM user_levels ORDER BY {sort_field} DESC")
+    all_users = cursor.fetchall()
+    conn.close()
+    
+    if not all_users:
+        await interaction.response.send_message("Noch keine Daten in der Leaderboard-Datenbank!", ephemeral=True)
+        return
+    
+    # Create pages with 20 users each
+    users_per_page = 20
+    pages = []
+    for i in range(0, len(all_users), users_per_page):
+        page_users = all_users[i:i + users_per_page]
+        embed = discord.Embed(
+            title=title,
+            description=f"Seite {i//users_per_page + 1} von {(len(all_users)-1)//users_per_page + 1}",
+            color=discord.Color.gold()
+        )
+        
+        # Add fields for each user on this page
+        for j, user_data in enumerate(page_users):
+            user_id, username, xp, level, message_count, voice_time = user_data
+            
+            # Try to get member from guild for updated username
+            member = interaction.guild.get_member(int(user_id))
+            display_name = member.display_name if member else username
+            
+            # Format voice time
+            voice_hours = voice_time // 3600
+            voice_minutes = (voice_time % 3600) // 60
+            voice_str = f"{voice_hours}h {voice_minutes}m"
+            
+            # Value based on sort type
+            if sort_by == "xp":
+                value = f"{xp} XP (Level {level})"
+            elif sort_by == "level":
+                value = f"Level {level} ({xp} XP)"
+            elif sort_by == "messages":
+                value = f"{message_count} Nachrichten (Level {level})"
+            else:  # voice
+                value = f"{voice_str} (Level {level})"
+            
+            embed.add_field(
+                name=f"{i+j+1}. {display_name}",
+                value=value,
+                inline=False
+            )
+        
+        pages.append(embed)
+    
+    # Create view with pagination buttons
+    view = Paginator(pages)
+    await interaction.response.send_message(embed=pages[0], view=view, ephemeral=True)
+
+@leaderboard_all.autocomplete('type')
+async def leaderboard_all_autocomplete(interaction: discord.Interaction, current: str):
+    types = [
+        app_commands.Choice(name="Nach XP", value="xp"),
+        app_commands.Choice(name="Nach Level", value="level"),
+        app_commands.Choice(name="Nach Nachrichten", value="messages"),
+        app_commands.Choice(name="Nach Sprachzeit", value="voice")
+    ]
+    
+    # Filter choices based on current input
+    filtered_types = [
+        choice for choice in types 
+        if current.lower() in choice.name.lower() or current.lower() in choice.value.lower()
+    ]
+    
+    return filtered_types
+
 bot.run(DISCORD_TOKEN)
