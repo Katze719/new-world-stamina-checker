@@ -2380,36 +2380,6 @@ async def leaderboard_all_autocomplete(interaction: discord.Interaction, current
     
     return filtered_types
 
-@tree.command(name="streak", description="Zeigt deine aktuelle Aktivitäts-Streak an")
-async def streak(interaction: discord.Interaction, user: Optional[discord.Member] = None):
-    target_user = user or interaction.user
-    user_data = await get_user_level_data(target_user.id)
-    
-    streak_days = user_data.get("streak_days", 0)
-    multiplier = user_data.get("streak_multiplier", 1.0)
-    
-    embed = discord.Embed(
-        title="🔥 Aktivitäts-Streak",
-        description=f"{'Du bist' if not user else f'{target_user.display_name} ist'} seit **{streak_days}** Tagen in Folge aktiv!",
-        color=discord.Color.orange()
-    )
-    
-    if multiplier > 1.0:
-        embed.add_field(
-            name="Aktueller XP-Bonus", 
-            value=f"+{int((multiplier-1)*100)}% ({multiplier}x)"
-        )
-    
-    next_threshold = 3 if streak_days < 3 else 7 if streak_days < 7 else 14 if streak_days < 14 else None
-    if next_threshold:
-        days_to_next = next_threshold - streak_days
-        next_bonus = "1.1x" if next_threshold == 3 else "1.2x" if next_threshold == 7 else "1.5x"
-        embed.add_field(
-            name="Nächster Bonus", 
-            value=f"Noch **{days_to_next}** Tag(e) bis zum {next_bonus} Multiplikator!"
-        )
-    
-    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # Neue Task: Täglich Streaks aktualisieren
 @tasks.loop(hours=24)
