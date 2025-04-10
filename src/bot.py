@@ -27,7 +27,8 @@ import datetime
 from zoneinfo import ZoneInfo  # Erfordert Python 3.9+
 import sqlite3
 import spreadsheet
-from datetime import UTC
+# Replace UTC import with timezone
+# from datetime import UTC
 
 matplotlib.use('Agg')  # Nutzt ein nicht-interaktives Backend für Speicherung
 import matplotlib.pyplot as plt
@@ -1828,7 +1829,7 @@ async def ensure_user_in_db(user_id, username):
         cursor = conn.cursor()
         cursor.execute(
             "INSERT INTO user_levels (user_id, username, xp, level, message_count, voice_time, streak_days, streak_multiplier, last_active) VALUES (?, ?, 0, 0, 0, 0, 0, 1.0, ?)",
-            (str(user_id), username, datetime.datetime.now(UTC).isoformat())
+            (str(user_id), username, datetime.datetime.now(datetime.timezone.utc).isoformat())
         )
         conn.commit()
         conn.close()
@@ -1860,7 +1861,7 @@ async def add_xp(user_id, username, xp_amount):
     new_level, _, _, _ = get_level_progress(new_xp)
     
     # Update database with new XP, level and last_active timestamp
-    current_time = datetime.datetime.now(UTC).isoformat()
+    current_time = datetime.datetime.now(datetime.timezone.utc).isoformat()
     cursor.execute(
         "UPDATE user_levels SET xp = ?, level = ?, last_active = ? WHERE user_id = ?",
         (new_xp, new_level, current_time, str(user_id))
@@ -2416,7 +2417,7 @@ async def update_streaks():
     log.info("[STREAK] Aktualisiere Streaks für alle Nutzer...")
     
     # Aktuelle Zeit in UTC
-    today = datetime.datetime.now(UTC).date()
+    today = datetime.datetime.now(datetime.timezone.utc).date()
     
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -2532,7 +2533,7 @@ async def set_streak(interaction: discord.Interaction, user: discord.Member, str
     
     cursor.execute(
         "UPDATE user_levels SET streak_days = ?, streak_multiplier = ?, last_active = ? WHERE user_id = ?",
-        (streak_days, multiplier, datetime.datetime.now(UTC).isoformat(), str(user.id))
+        (streak_days, multiplier, datetime.datetime.now(datetime.timezone.utc).isoformat(), str(user.id))
     )
     
     # Wenn der User noch nicht in der Datenbank ist, erstelle ihn
@@ -2540,7 +2541,7 @@ async def set_streak(interaction: discord.Interaction, user: discord.Member, str
         await ensure_user_in_db(user.id, user.display_name)
         cursor.execute(
             "UPDATE user_levels SET streak_days = ?, streak_multiplier = ?, last_active = ? WHERE user_id = ?",
-            (streak_days, multiplier, datetime.datetime.now(UTC).isoformat(), str(user.id))
+            (streak_days, multiplier, datetime.datetime.now(datetime.timezone.utc).isoformat(), str(user.id))
         )
     
     conn.commit()
