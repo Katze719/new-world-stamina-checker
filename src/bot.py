@@ -27,6 +27,7 @@ import datetime
 from zoneinfo import ZoneInfo  # Erfordert Python 3.9+
 import sqlite3
 import spreadsheet
+from datetime import UTC
 
 matplotlib.use('Agg')  # Nutzt ein nicht-interaktives Backend für Speicherung
 import matplotlib.pyplot as plt
@@ -123,7 +124,10 @@ def init_level_db():
         xp INTEGER DEFAULT 0,
         level INTEGER DEFAULT 0,
         message_count INTEGER DEFAULT 0,
-        voice_time INTEGER DEFAULT 0
+        voice_time INTEGER DEFAULT 0,
+        streak_days INTEGER DEFAULT 0,
+        streak_multiplier REAL DEFAULT 1.0,
+        last_active TEXT
     )
     ''')
     
@@ -137,6 +141,16 @@ def init_level_db():
         PRIMARY KEY (user_id, channel_id, start_time)
     )
     ''')
+    
+    # Add streak columns if they don't exist
+    try:
+        cursor.execute("ALTER TABLE user_levels ADD COLUMN streak_days INTEGER DEFAULT 0")
+        cursor.execute("ALTER TABLE user_levels ADD COLUMN streak_multiplier REAL DEFAULT 1.0")
+        cursor.execute("ALTER TABLE user_levels ADD COLUMN last_active TEXT")
+        log.info("Added streak columns to user_levels table")
+    except sqlite3.OperationalError:
+        # Columns already exist
+        pass
     
     conn.commit()
     conn.close()
@@ -429,6 +443,10 @@ async def on_ready():
         
     if not reward_voice_activity.is_running():
         reward_voice_activity.start()
+    
+    # Streak-Update-Task starten
+    if not update_streaks.is_running():
+        update_streaks.start()
 
     log.info(f"Bot ist eingeloggt als {bot.user}")
     try:
@@ -1795,7 +1813,10 @@ async def get_user_level_data(user_id):
             "xp": result[2],
             "level": result[3],
             "message_count": result[4],
-            "voice_time": result[5]
+            "voice_time": result[5],
+            "streak_days": result[6] if len(result) > 6 else 0,
+            "streak_multiplier": result[7] if len(result) > 7 else 1.0,
+            "last_active": result[8] if len(result) > 8 else None
         }
     return None
 
@@ -1806,8 +1827,8 @@ async def ensure_user_in_db(user_id, username):
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO user_levels (user_id, username, xp, level, message_count, voice_time) VALUES (?, ?, 0, 0, 0, 0)",
-            (str(user_id), username)
+            "INSERT INTO user_levels (user_id, username, xp, level, message_count, voice_time, streak_days, streak_multiplier, last_active) VALUES (?, ?, 0, 0, 0, 0, 0, 1.0, ?)",
+            (str(user_id), username, datetime.datetime.now(UTC).isoformat())
         )
         conn.commit()
         conn.close()
@@ -1822,19 +1843,27 @@ async def add_xp(user_id, username, xp_amount):
     cursor = conn.cursor()
     
     # Get current XP and level
-    cursor.execute("SELECT xp, level FROM user_levels WHERE user_id = ?", (str(user_id),))
-    current_xp, current_level = cursor.fetchone()
+    cursor.execute("SELECT xp, level, streak_multiplier FROM user_levels WHERE user_id = ?", (str(user_id),))
+    result = cursor.fetchone()
+    
+    current_xp, current_level = result[0], result[1]
+    # Apply streak multiplier if it exists
+    streak_multiplier = result[2] if len(result) > 2 else 1.0
+    
+    # Calculate adjusted XP with multiplier
+    adjusted_xp = int(xp_amount * streak_multiplier)
     
     # Add XP
-    new_xp = current_xp + xp_amount
+    new_xp = current_xp + adjusted_xp
     
     # Calculate new level based on XP
     new_level, _, _, _ = get_level_progress(new_xp)
     
-    # Update database
+    # Update database with new XP, level and last_active timestamp
+    current_time = datetime.datetime.now(UTC).isoformat()
     cursor.execute(
-        "UPDATE user_levels SET xp = ?, level = ? WHERE user_id = ?",
-        (new_xp, new_level, str(user_id))
+        "UPDATE user_levels SET xp = ?, level = ?, last_active = ? WHERE user_id = ?",
+        (new_xp, new_level, current_time, str(user_id))
     )
     conn.commit()
     conn.close()
@@ -1881,6 +1910,10 @@ async def level(interaction: discord.Interaction, user: Optional[discord.Member]
     voice_time_minutes = (level_data["voice_time"] % 3600) // 60
     voice_time_str = f"{voice_time_hours}h {voice_time_minutes}m"
     
+    # Streak-Informationen
+    streak_days = level_data.get("streak_days", 0)
+    streak_multiplier = level_data.get("streak_multiplier", 1.0)
+    
     # Create embed
     embed = discord.Embed(
         title=f"🏆 Level-Status von {target_user.display_name}",
@@ -1898,6 +1931,13 @@ async def level(interaction: discord.Interaction, user: Optional[discord.Member]
     
     embed.add_field(name="Nachrichten", value=str(level_data["message_count"]), inline=True)
     embed.add_field(name="Sprachzeit", value=voice_time_str, inline=True)
+    
+    # Streak-Information hinzufügen
+    if streak_days > 0:
+        streak_text = f"{streak_days} Tage"
+        if streak_multiplier > 1.0:
+            streak_text += f" (+{int((streak_multiplier-1)*100)}% Bonus)"
+        embed.add_field(name="🔥 Streak", value=streak_text, inline=True)
     
     # Add a progress bar (20 character width)
     if current_level < MAX_LEVEL:
@@ -2338,5 +2378,225 @@ async def leaderboard_all_autocomplete(interaction: discord.Interaction, current
     ]
     
     return filtered_types
+
+@tree.command(name="streak", description="Zeigt deine aktuelle Aktivitäts-Streak an")
+async def streak(interaction: discord.Interaction, user: Optional[discord.Member] = None):
+    target_user = user or interaction.user
+    user_data = await get_user_level_data(target_user.id)
+    
+    streak_days = user_data.get("streak_days", 0)
+    multiplier = user_data.get("streak_multiplier", 1.0)
+    
+    embed = discord.Embed(
+        title="🔥 Aktivitäts-Streak",
+        description=f"{'Du bist' if not user else f'{target_user.display_name} ist'} seit **{streak_days}** Tagen in Folge aktiv!",
+        color=discord.Color.orange()
+    )
+    
+    if multiplier > 1.0:
+        embed.add_field(
+            name="Aktueller XP-Bonus", 
+            value=f"+{int((multiplier-1)*100)}% ({multiplier}x)"
+        )
+    
+    next_threshold = 3 if streak_days < 3 else 7 if streak_days < 7 else 14 if streak_days < 14 else None
+    if next_threshold:
+        days_to_next = next_threshold - streak_days
+        next_bonus = "1.1x" if next_threshold == 3 else "1.2x" if next_threshold == 7 else "1.5x"
+        embed.add_field(
+            name="Nächster Bonus", 
+            value=f"Noch **{days_to_next}** Tag(e) bis zum {next_bonus} Multiplikator!"
+        )
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+# Neue Task: Täglich Streaks aktualisieren
+@tasks.loop(hours=24)
+async def update_streaks():
+    log.info("[STREAK] Aktualisiere Streaks für alle Nutzer...")
+    
+    # Aktuelle Zeit in UTC
+    today = datetime.datetime.now(UTC).date()
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Alle Nutzer aus der DB abrufen
+    cursor.execute("SELECT user_id, streak_days, last_active FROM user_levels")
+    all_users = cursor.fetchall()
+    
+    for user in all_users:
+        user_id = user[0]
+        streak_days = user[1] if user[1] is not None else 0
+        last_active = user[2]
+        
+        if not last_active:
+            continue
+            
+        try:
+            # Konvertiere Datum aus DB
+            last_active_date = datetime.datetime.fromisoformat(last_active).date()
+            days_difference = (today - last_active_date).days
+            
+            if days_difference == 1:
+                # Konsekutiver Tag - Streak erhöhen
+                new_streak = streak_days + 1
+                
+                # Multiplikator berechnen
+                multiplier = 1.0
+                if new_streak >= 14:
+                    multiplier = 1.5
+                elif new_streak >= 7:
+                    multiplier = 1.2
+                elif new_streak >= 3:
+                    multiplier = 1.1
+                    
+                cursor.execute(
+                    "UPDATE user_levels SET streak_days = ?, streak_multiplier = ? WHERE user_id = ?",
+                    (new_streak, multiplier, user_id)
+                )
+                log.info(f"[STREAK] User {user_id}: Streak auf {new_streak} Tage erhöht, Multiplikator: {multiplier}x")
+            elif days_difference > 1:
+                # Streak gebrochen
+                cursor.execute(
+                    "UPDATE user_levels SET streak_days = 0, streak_multiplier = 1.0 WHERE user_id = ?",
+                    (user_id,)
+                )
+                log.info(f"[STREAK] User {user_id}: Streak zurückgesetzt (Inaktiv seit {days_difference} Tagen)")
+        except Exception as e:
+            log.error(f"[STREAK] Fehler bei der Verarbeitung von User {user_id}: {str(e)}")
+    
+    conn.commit()
+    conn.close()
+    log.info("[STREAK] Streak-Aktualisierung abgeschlossen")
+
+# Command: Streak-Informationen anzeigen
+@tree.command(name="streak", description="Zeigt deine aktuelle Aktivitäts-Streak an")
+async def streak(interaction: discord.Interaction, user: Optional[discord.Member] = None):
+    target_user = user or interaction.user
+    user_data = await get_user_level_data(target_user.id)
+    
+    if not user_data:
+        await ensure_user_in_db(target_user.id, target_user.display_name)
+        user_data = await get_user_level_data(target_user.id)
+    
+    streak_days = user_data.get("streak_days", 0)
+    multiplier = user_data.get("streak_multiplier", 1.0)
+    
+    embed = discord.Embed(
+        title="🔥 Aktivitäts-Streak",
+        description=f"{'Du bist' if not user else f'{target_user.display_name} ist'} seit **{streak_days}** Tagen in Folge aktiv!",
+        color=discord.Color.orange()
+    )
+    
+    if multiplier > 1.0:
+        embed.add_field(
+            name="Aktueller XP-Bonus", 
+            value=f"+{int((multiplier-1)*100)}% ({multiplier}x)"
+        )
+    
+    next_threshold = 3 if streak_days < 3 else 7 if streak_days < 7 else 14 if streak_days < 14 else None
+    if next_threshold:
+        days_to_next = next_threshold - streak_days
+        next_bonus = "1.1x" if next_threshold == 3 else "1.2x" if next_threshold == 7 else "1.5x"
+        embed.add_field(
+            name="Nächster Bonus", 
+            value=f"Noch **{days_to_next}** Tag(e) bis zum {next_bonus} Multiplikator!"
+        )
+    
+    # Set user avatar if available
+    if target_user.avatar:
+        embed.set_thumbnail(url=target_user.avatar.url)
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+# Command: Admin-Funktion zum Setzen einer Streak
+@tree.command(name="set_streak", description="Setzt die Streak eines Nutzers (nur für Admins)")
+@app_commands.checks.has_permissions(administrator=True)
+async def set_streak(interaction: discord.Interaction, user: discord.Member, streak_days: int):
+    if streak_days < 0:
+        await interaction.response.send_message("Die Streak-Tage müssen mindestens 0 sein.", ephemeral=True)
+        return
+    
+    # Multiplier berechnen
+    multiplier = 1.0
+    if streak_days >= 14:
+        multiplier = 1.5
+    elif streak_days >= 7:
+        multiplier = 1.2
+    elif streak_days >= 3:
+        multiplier = 1.1
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute(
+        "UPDATE user_levels SET streak_days = ?, streak_multiplier = ?, last_active = ? WHERE user_id = ?",
+        (streak_days, multiplier, datetime.datetime.now(UTC).isoformat(), str(user.id))
+    )
+    
+    # Wenn der User noch nicht in der Datenbank ist, erstelle ihn
+    if cursor.rowcount == 0:
+        await ensure_user_in_db(user.id, user.display_name)
+        cursor.execute(
+            "UPDATE user_levels SET streak_days = ?, streak_multiplier = ?, last_active = ? WHERE user_id = ?",
+            (streak_days, multiplier, datetime.datetime.now(UTC).isoformat(), str(user.id))
+        )
+    
+    conn.commit()
+    conn.close()
+    
+    await interaction.response.send_message(
+        f"Streak von {user.display_name} wurde auf {streak_days} Tage gesetzt "
+        f"(Multiplikator: {multiplier}x).", 
+        ephemeral=True
+    )
+
+# Command: Top Streak-Leaderboard anzeigen
+@tree.command(name="streak_leaders", description="Zeigt die Top-Spieler nach Aktivitäts-Streak an")
+async def streak_leaders(interaction: discord.Interaction):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Top 10 Spieler nach Streak sortiert abrufen
+    cursor.execute(
+        "SELECT user_id, username, streak_days, streak_multiplier FROM user_levels "
+        "WHERE streak_days > 0 ORDER BY streak_days DESC LIMIT 10"
+    )
+    top_users = cursor.fetchall()
+    conn.close()
+    
+    if not top_users:
+        await interaction.response.send_message("Noch keine aktiven Streaks gefunden.", ephemeral=True)
+        return
+    
+    # Erstelle ein Embed für die Top-Liste
+    embed = discord.Embed(
+        title="🔥 Top Aktivitäts-Streaks",
+        description="Diese Nutzer sind am längsten ohne Unterbrechung aktiv!",
+        color=discord.Color.gold()
+    )
+    
+    for i, user in enumerate(top_users):
+        user_id = user[0]
+        username = user[1]
+        streak_days = user[2]
+        multiplier = user[3]
+        
+        # Versuche, den aktuellen Discord-Namen zu erhalten
+        member = interaction.guild.get_member(int(user_id))
+        if member:
+            username = member.display_name
+        
+        medal = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else f"{i+1}."
+        embed.add_field(
+            name=f"{medal} {username}",
+            value=f"**{streak_days}** Tage in Folge\n"
+                  f"Multiplikator: **{multiplier}x**",
+            inline=True if i >= 3 else False
+        )
+    
+    await interaction.response.send_message(embed=embed)
+
 
 bot.run(DISCORD_TOKEN)

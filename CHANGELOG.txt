@@ -1,3 +1,37 @@
+## Version 0.4.0-release
+
+### **Neue Features**
+- **Aktivitäts-Streak-System:**  
+  - Implementierung eines dynamischen Belohnungssystems für regelmäßige Aktivität:
+    - Automatische Erkennung und Belohnung täglicher Aktivität
+    - Steigende XP-Multiplikatoren bei Erreichen von Meilensteinen:
+      - 3 Tage: 1.1x XP-Bonus (10% mehr)
+      - 7 Tage: 1.2x XP-Bonus (20% mehr)
+      - 14 Tage: 1.5x XP-Bonus (50% mehr)
+    - Automatisches Zurücksetzen der Streak bei einem Tag Inaktivität
+  - Neue Befehle für Nutzer:
+    - `/streak [user]`: Zeigt die aktuelle Streak und den XP-Multiplikator an
+    - `/streak_leaders`: Zeigt die Top-10 Spieler mit den längsten aktiven Streaks an
+  - Neue Admin-Befehle:
+    - `/set_streak <user> <days>`: Setzt die Streak eines Nutzers auf einen bestimmten Wert
+  - Integration in bestehende Funktionen:
+    - Anzeige der Streak im `/level`-Befehl
+    - XP-Multiplikator wird auf alle XP-Gewinne angewendet
+
+### **Verbesserungen**
+- **Datenbank:**  
+  - Erweiterung des Datenbankschemas für Streak-Tracking
+  - Automatische Migration bestehender Daten
+- **Logging:**  
+  - Umstellung aller Meldungen auf strukturiertes Logging
+
+### **Technisches**
+- **Modernisierung:**
+  - Aktualisierung der Datetime-Funktionen auf moderne UTC-Standards
+  - Nutzung von datetime.now(UTC) statt des veralteten utcnow()
+
+---
+
 ## Version 0.3.12-beta.82
 
 ### **Neue Features**
@@ -208,7 +242,5 @@
   - In manchen Fällen wird das **War Board** fälschlicherweise als Stamina-Leiste erkannt.  
   - Vereinzelt kam es vor, dass das **Inventar** als Stamina-Leiste interpretiert wurde.  
   - Beide Probleme werden derzeit untersucht.
-
----
 
 ---
