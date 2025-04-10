@@ -2567,7 +2567,7 @@ async def streak_leaders(interaction: discord.Interaction):
             inline=True if i >= 3 else False
         )
     
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 bot.run(DISCORD_TOKEN)
