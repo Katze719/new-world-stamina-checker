@@ -1,3 +1,41 @@
+## Version 1.0.0-release
+
+> **Ein persönliches Wort zum Release:**
+> 
+> Nach monatelanger Entwicklung, unzähligen Tests und kontinuierlichen Verbesserungen bin ich stolz, verkünden zu können, dass wir es endlich zu einer stabilen Version geschafft haben! Mit diesem Release wird offiziell Version 1.0.0 eingeführt.
+> 
+> Ich möchte mich an dieser Stelle bei der Community für die Geduld und das wertvolle Feedback bedanken. Bezüglich des Stamina-Check-Features muss ich mich allerdings entschuldigen - dieses ist noch nicht vollständig fertiggestellt und befindet sich weiterhin in intensiver Bearbeitung. Die vollständige Implementation ist für Version 1.3.0 geplant.
+> 
+> Vielen Dank für eure Unterstützung!
+
+### **Neue Funktionen**
+- **Level-System:**
+  - 100 Level mit progressiven Anforderungen
+  - Intensiv entwickelter Aktivitätserkennungs-Algorithmus ohne Lücken oder Loop-Holes nach mehreren Entwicklungsphasen
+  - Nickname-Integration mit Level-Anzeige: `{name} ({level}) [{icons}]`
+
+- **Streak-System:**
+  - XP-Boni für kontinuierliche Aktivität:
+    - 3 Tage: +10% XP
+    - 7 Tage: +20% XP
+    - 14 Tage: +50% XP
+  - Automatisches Zurücksetzen bei Inaktivität
+
+### **Befehle für Benutzer**
+- `/level` - Zeigt Level, XP und Fortschritt
+- `/streak` - Zeigt aktuelle Streak und XP-Multiplikator
+- `/streak_leaders` - Top-10 Spieler mit längsten Streaks
+- `/leaderboard [type]` - Ranglisten nach XP, Level, Nachrichten oder Sprachzeit
+- `/stats` - Persönliche Statistiken aus dem Google Sheet
+
+### **Technische Verbesserungen**
+- SQLite-Datenbank mit automatischer Schema-Migration
+- Zeitzone-konforme UTC-Zeitstempel 
+- Strukturiertes Logging-System
+- Verbesserte Fehlertoleranz
+
+---
+
 ## Version 0.4.0-release
 
 ### **Neue Features**
@@ -14,9 +52,10 @@
     - `/streak_leaders`: Zeigt die Top-10 Spieler mit den längsten aktiven Streaks an
   - Neue Admin-Befehle:
     - `/set_streak <user> <days>`: Setzt die Streak eines Nutzers auf einen bestimmten Wert
-  - Integration in bestehende Funktionen:
-    - Anzeige der Streak im `/level`-Befehl
-    - XP-Multiplikator wird auf alle XP-Gewinne angewendet
+    - `/level`: Zeigt den aktuellen Level, XP und Fortschritt an
+    - Integration in bestehende Funktionen:
+      - Anzeige der Streak im `/level`-Befehl
+      - XP-Multiplikator wird auf alle XP-Gewinne angewendet
 
 ### **Verbesserungen**
 - **Datenbank:**  

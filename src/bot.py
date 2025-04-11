@@ -2564,7 +2564,7 @@ async def streak_leaders(interaction: discord.Interaction):
             name=f"{medal} {username}",
             value=f"**{streak_days}** Tage in Folge\n"
                   f"Multiplikator: **{multiplier}x**",
-            inline=True if i >= 3 else False
+            inline=True
         )
     
     await interaction.response.send_message(embed=embed, ephemeral=True)
