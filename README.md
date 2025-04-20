@@ -15,10 +15,18 @@ Analyze YouTube videos for stamina management during wars and events:
 ### 🏆 **Level-System**
 A comprehensive user activity tracking and rewards system:
 - Users earn XP through text messages and voice chat activity
-- Progress through 10 levels with increasing XP requirements
+- Progress through 100 levels with increasing XP requirements
 - Level numbers display automatically in user nicknames
 - Track individual progress and compete on server-wide leaderboards
 - Rewards both active chatters and voice participants
+
+### 📊 **Activity Analytics**
+Detailed tracking and visualization of server activity:
+- Complete XP history with timestamps and sources
+- Visual graphs for individual XP progression
+- Monthly statistics and server-wide activity analysis
+- Performance breakdown by activity type (messages, voice, etc.)
+- Historical data for long-term trend analysis
 
 ### 📊 **Google Sheets Integration**
 Seamlessly integrates with Google Sheets to manage and update:
@@ -61,12 +69,24 @@ Seamlessly integrates with Google Sheets to manage and update:
 - `/changelog`: View the latest changelog entry.
 - `/stats`: Display your stats from the Google Sheet.
 - `/abwesenheit`: Submit your absence period.
-- `/level [user]`: Display the current level and XP of a user (optionally another user).
-- `/leaderboard [type]`: Show top players by level, messages, or voice time.
-- `/add_xp <user> <amount>`: (Admin) Add a specific amount of XP to a user.
-- `/reset_levels <confirm>`: (Admin) Reset all levels and XP (requires confirmation).
-- `/set_level <user> <level>`: (Admin) Manually set a user's level (max. 10).
-- `/level_stats`: (Admin) Display general statistics about the level system.
+
+#### Level System Commands
+- `/level [user]`: Display the current level and XP of a user.
+- `/leaderboard [type]`: Show top players by XP, level, messages, or voice time.
+- `/leaderboard_all [type]`: Show all users sorted by XP, level, messages, or voice time.
+- `/streak [user]`: Display the activity streak and XP multiplier of a user.
+- `/streak_leaders`: Show top players by activity streak.
+- `/xp_history [user] [days]`: Show XP changes with timestamps and sources.
+- `/xp_graph [user] [days]`: Generate a visual graph of XP progression.
+- `/monthly_stats [year] [month]`: Display server statistics for a specific month.
+- `/server_activity [days]`: Show a stacked bar chart of server-wide activity.
+
+#### Admin Level Commands
+- `/add_xp <user> <amount>`: Add a specific amount of XP to a user.
+- `/reset_levels <confirm>`: Reset all levels and XP (requires confirmation).
+- `/set_level <user> <level>`: Manually set a user's level.
+- `/set_streak <user> <streak_days>`: Set the streak days for a user.
+- `/level_stats`: Display general statistics about the level system.
 - `/set_role <role> <icon> <prio>`: Configure icons and priorities for roles.
 - `/clear_role <role>`: Remove the icon and priority for a role.
 - `/list_roles`: List all roles with their icons and priorities.

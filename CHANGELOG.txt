@@ -1,3 +1,37 @@
+## Version 1.1.0-release
+
+### **Neue Funktionen**
+- **XP-Verlaufsaufzeichnung:**
+  - Vollständige Aufzeichnung aller XP-Änderungen mit Zeitstempel
+  - Speicherung der XP-Quelle (Nachricht, Sprachchat, Admin-Zuweisung)
+  - Langzeitstatistiken für individuelle und server-weite Aktivität
+  - Leistungsanalyse über verschiedene Zeiträume
+
+- **Statistik-Dashboard:**
+  - Neue Befehle für Aktivitätsanalyse:
+    - `/xp_history [user] [days]` - Zeigt die XP-Historie mit Quellen-Aufschlüsselung
+    - `/monthly_stats [year] [month]` - Zeigt Server-Statistiken für einen bestimmten Monat
+    - `/xp_graph [user] [days]` - Erzeugt einen visuellen Graphen der XP-Entwicklung
+    - `/server_activity [days]` - Zeigt einen Aktivitätsgraphen des gesamten Servers
+
+### **Verbesserungen**
+- **Erweiterte Datenbank:**
+  - Neue "xp_history"-Tabelle für detaillierte Aktivitätsaufzeichnungen
+  - Optimierte Abfragen für schnelle Statistik-Generierung
+
+### **Technische Updates**
+- **Implementierung von Matplotlib:**
+  - Generierung von visuellen Statistiken direkt im Discord
+  - Unterstützung für Balkendiagramme, Liniendiagramme und gestapelte Visualisierungen
+  - Farbcodierte Darstellung von verschiedenen XP-Quellen
+
+### **Ausblick**
+- Leaderboards für monatliche und wöchentliche XP-Gewinne
+- Automatische Zusammenfassungen der Server-Aktivität
+- Individuelle Aktivitätsziele mit Belohnungen
+
+---
+
 ## Version 1.0.0-release
 
 > **Ein persönliches Wort zum Release:**
