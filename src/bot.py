@@ -30,6 +30,7 @@ import spreadsheet
 import matplotlib.pyplot as plt
 import io
 import matplotlib.dates as mdates
+import matplotlib.font_manager as fm
 
 matplotlib.use('Agg')  # Nutzt ein nicht-interaktives Backend für Speicherung
 
@@ -3095,6 +3096,9 @@ async def server_activity(interaction: discord.Interaction, days: int = 30):
     
     # Create the stacked bar plot
     plt.figure(figsize=(14, 8))
+    
+    # Set font properties to use both DejaVu Sans and Noto Color Emoji
+    plt.rcParams['font.family'] = ['DejaVu Sans', 'Noto Color Emoji']
     
     # Plot stacked bars
     plt.bar(plot_days, message_values, color='#3498db', label='Nachrichten')

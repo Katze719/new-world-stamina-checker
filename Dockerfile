@@ -15,6 +15,8 @@ RUN apt-get update && apt-get install -y \
     libsm6 \
     ffmpeg \
     locales \
+    fonts-noto-color-emoji \
+    fonts-dejavu \
     && rm -rf /var/lib/apt/lists/*
 
 RUN echo "de_DE.UTF-8 UTF-8" >> /etc/locale.gen; \
