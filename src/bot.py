@@ -2789,19 +2789,53 @@ async def monthly_stats(interaction: discord.Interaction, year: int = None, mont
 
 @monthly_stats.autocomplete('month')
 async def month_autocomplete(interaction: discord.Interaction, current: str):
+    month_names = [
+        "Januar", "Februar", "März", "April", "Mai", "Juni", 
+        "Juli", "August", "September", "Oktober", "November", "Dezember"
+    ]
+    
+    # Datenbankabfrage für verfügbare Monate durchführen
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Wir nutzen das Jahr aus dem aktuellen Befehlskontext, wenn verfügbar
+    try:
+        # Versuche, das Jahr aus den Options zu holen
+        options = interaction.namespace
+        selected_year = getattr(options, 'year', None)
+    except:
+        selected_year = None
+    
+    # Standardmäßig das aktuelle Jahr verwenden, wenn kein Jahr ausgewählt wurde
+    if not selected_year:
+        selected_year = datetime.datetime.now().year
+    
+    # Abfrage nach Monaten mit Daten für das ausgewählte Jahr
+    cursor.execute(
+        """
+        SELECT DISTINCT strftime('%m', timestamp) as month 
+        FROM xp_history 
+        WHERE strftime('%Y', timestamp) = ? 
+        ORDER BY month
+        """,
+        (str(selected_year),)
+    )
+    
+    available_months = [int(row[0]) for row in cursor.fetchall()]
+    conn.close()
+    
+    # Wenn keine Daten für das Jahr existieren, Standard-Monate des aktuellen Jahres zeigen
+    if not available_months:
+        # Für das aktuelle Jahr zeigen wir nur Monate bis zum aktuellen Monat
+        if selected_year == datetime.datetime.now().year:
+            available_months = list(range(1, datetime.datetime.now().month + 1))
+        else:
+            available_months = list(range(1, 13))
+    
+    # Erstelle Choices nur für Monate mit Daten
     months = [
-        app_commands.Choice(name="Januar", value=1),
-        app_commands.Choice(name="Februar", value=2),
-        app_commands.Choice(name="März", value=3),
-        app_commands.Choice(name="April", value=4),
-        app_commands.Choice(name="Mai", value=5),
-        app_commands.Choice(name="Juni", value=6),
-        app_commands.Choice(name="Juli", value=7),
-        app_commands.Choice(name="August", value=8),
-        app_commands.Choice(name="September", value=9),
-        app_commands.Choice(name="Oktober", value=10),
-        app_commands.Choice(name="November", value=11),
-        app_commands.Choice(name="Dezember", value=12)
+        app_commands.Choice(name=f"{month_names[m-1]} {selected_year}", value=m)
+        for m in available_months
     ]
     
     if not current:
@@ -2814,10 +2848,34 @@ async def month_autocomplete(interaction: discord.Interaction, current: str):
 
 @monthly_stats.autocomplete('year')
 async def year_autocomplete(interaction: discord.Interaction, current: str):
+    # Datenbankabfrage für verfügbare Jahre durchführen
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute(
+        """
+        SELECT DISTINCT strftime('%Y', timestamp) as year 
+        FROM xp_history 
+        ORDER BY year DESC
+        """
+    )
+    
+    available_years = [int(row[0]) for row in cursor.fetchall()]
+    conn.close()
+    
+    # Wenn keine Daten gefunden wurden, zeige aktuelle Jahr und letztes Jahr
     now = datetime.datetime.now()
+    if not available_years:
+        available_years = [now.year, now.year - 1]
+    
+    # Stelle sicher, dass das aktuelle Jahr immer dabei ist
+    if now.year not in available_years:
+        available_years.append(now.year)
+        available_years.sort(reverse=True)
+    
     years = [
         app_commands.Choice(name=str(year), value=year)
-        for year in range(2023, now.year + 2)  # Allow current year and next year
+        for year in available_years
     ]
     
     if not current:
