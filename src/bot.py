@@ -2120,10 +2120,13 @@ async def reward_voice_activity():
             # Calculate duration since last activity
             current_time = int(time.time())
             
-            # Handle case where session_info is an integer (from older sessions)
-            start_time = session_info.get("start_time", session_info) if isinstance(session_info, dict) else session_info
-            
-            last_spoke_time = activity_data.get("last_spoke", start_time)
+            # Prüfe, ob session_info ein Dictionary oder ein Integer ist
+            if isinstance(session_info, dict):
+                last_spoke_time = activity_data.get("last_spoke", session_info.get("start_time", current_time))
+            else:
+                # Legacy-Format - session_info ist ein Integer (Startzeitstempel)
+                last_spoke_time = activity_data.get("last_spoke", session_info)
+                
             time_since_spoke = current_time - last_spoke_time
             
             # Only reward if they've shown activity in the last 60 minutes (sent a text message while in voice)
@@ -2136,9 +2139,9 @@ async def reward_voice_activity():
                 start_time = session_info.get("start_time", current_time)
                 last_reward_time = session_info.get("last_reward_time", start_time)
             else:
-                # Handle legacy format (int timestamp)
+                # Legacy-Format behandeln
                 start_time = session_info
-                last_reward_time = start_time
+                last_reward_time = session_info  # Für alte Daten nehmen wir an, dass noch keine Belohnung stattfand
                 
             reward_duration = current_time - last_reward_time
             
@@ -2170,9 +2173,9 @@ async def reward_voice_activity():
                             # Award XP without ending session
                             leveled_up, new_level = await add_xp(user_id, member.display_name, xp_earned, reason="voice_periodic")
                             
-                            # Update session info structure if needed
+                            # Update session structure if needed
                             if not isinstance(active_voice_users[user_id][channel_id], dict):
-                                # Convert legacy integer to proper dict format
+                                # Convert legacy integer format to dict format
                                 old_start_time = active_voice_users[user_id][channel_id]
                                 active_voice_users[user_id][channel_id] = {
                                     "start_time": old_start_time,
@@ -2182,6 +2185,7 @@ async def reward_voice_activity():
                             else:
                                 # Mark the user as active since they're receiving XP
                                 active_voice_users[user_id][channel_id]["was_active"] = True
+                                
                                 # Update last reward time
                                 active_voice_users[user_id][channel_id]["last_reward_time"] = current_time
                             
@@ -2190,3 +2194,1022 @@ async def reward_voice_activity():
                                 await update_member_nickname(member)
                             
                             log.info(f"Awarded {xp_earned} XP to {member.display_name} for voice activity")
+
+@tree.command(name="reset_levels", description="Setzt alle Level zurück (nur für Admins)")
+@app_commands.checks.has_permissions(administrator=True)
+async def reset_levels(interaction: discord.Interaction, confirm: bool):
+    """Admin command to reset all levels"""
+    if not confirm:
+        await interaction.response.send_message("Um alle Level zurückzusetzen, führe den Befehl mit `confirm=True` aus.", ephemeral=True)
+        return
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM user_levels")
+    cursor.execute("DELETE FROM voice_sessions")
+    conn.commit()
+    conn.close()
+    
+    # Clear active voice sessions
+    active_voice_users.clear()
+    
+    await interaction.response.send_message("Alle Level wurden zurückgesetzt!", ephemeral=True)
+
+@tree.command(name="set_level", description="Setzt das Level eines Nutzers (nur für Admins)")
+@app_commands.checks.has_permissions(administrator=True)
+async def set_level(interaction: discord.Interaction, user: discord.Member, level: int):
+    """Admin command to set a user's level"""
+    if level < 0:
+        await interaction.response.send_message("Das Level muss positiv sein!", ephemeral=True)
+        return
+    
+    # Cap level at MAX_LEVEL
+    if level > MAX_LEVEL:
+        level = MAX_LEVEL
+        await interaction.response.send_message(f"Level auf Maximum ({MAX_LEVEL}) begrenzt. {user.display_name} wurde auf Level {MAX_LEVEL} gesetzt.", ephemeral=True)
+        return
+    
+    # Calculate XP based on level
+    xp = get_xp_for_level(level)
+    
+    # Ensure user exists in DB
+    await ensure_user_in_db(user.id, user.display_name)
+    
+    # Update level and XP
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE user_levels SET level = ?, xp = ? WHERE user_id = ?",
+        (level, xp, str(user.id))
+    )
+    conn.commit()
+    conn.close()
+    
+    # Update nickname with new level
+    await update_member_nickname(user)
+    
+    await interaction.response.send_message(f"{user.display_name} wurde auf Level {level} gesetzt!", ephemeral=True)
+
+@tree.command(name="level_stats", description="Zeigt Statistiken über das Level-System")
+@app_commands.checks.has_permissions(administrator=True)
+async def level_stats(interaction: discord.Interaction):
+    """Admin command to view level system statistics"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Get total users
+    cursor.execute("SELECT COUNT(*) FROM user_levels")
+    total_users = cursor.fetchone()[0]
+    
+    # Get total XP
+    cursor.execute("SELECT SUM(xp) FROM user_levels")
+    total_xp = cursor.fetchone()[0] or 0
+    
+    # Get total messages
+    cursor.execute("SELECT SUM(message_count) FROM user_levels")
+    total_messages = cursor.fetchone()[0] or 0
+    
+    # Get total voice time
+    cursor.execute("SELECT SUM(voice_time) FROM user_levels")
+    total_voice_time = cursor.fetchone()[0] or 0
+    
+    # Get average level
+    cursor.execute("SELECT AVG(level) FROM user_levels")
+    avg_level = cursor.fetchone()[0] or 0
+    
+    # Get highest level
+    cursor.execute("SELECT MAX(level), user_id FROM user_levels")
+    highest_level, highest_level_user_id = cursor.fetchone() or (0, None)
+    
+    # Get active voice sessions
+    active_sessions = sum(len(channels) for channels in active_voice_users.values())
+    
+    conn.close()
+    
+    # Format voice time
+    voice_hours = total_voice_time // 3600
+    voice_minutes = (total_voice_time % 3600) // 60
+    
+    # Create embed
+    embed = discord.Embed(
+        title="📊 Level-System Statistiken",
+        color=discord.Color.blue()
+    )
+    
+    embed.add_field(name="Registrierte Nutzer", value=str(total_users), inline=True)
+    embed.add_field(name="Gesamt-XP", value=f"{total_xp:,}", inline=True)
+    embed.add_field(name="Durchschnittslevel", value=f"{avg_level:.1f}", inline=True)
+    
+    embed.add_field(name="Gesamt-Nachrichten", value=f"{total_messages:,}", inline=True)
+    embed.add_field(name="Gesamt-Sprachzeit", value=f"{voice_hours}h {voice_minutes}m", inline=True)
+    embed.add_field(name="Aktive Sprachsitzungen", value=str(active_sessions), inline=True)
+    
+    if highest_level_user_id:
+        member = interaction.guild.get_member(int(highest_level_user_id))
+        if member:
+            embed.add_field(name="Höchstes Level", value=f"{member.mention} (Level {highest_level})", inline=False)
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@tree.command(name="leaderboard_all", description="Zeigt alle Nutzer nach XP sortiert an")
+async def leaderboard_all(interaction: discord.Interaction, type: str = None):
+    """Show complete server leaderboard with pagination"""
+    # Set default type if not specified
+    if type is None or type == "xp":
+        sort_by = "xp"
+        sort_field = "xp"
+        title = "⭐ Komplettes Leaderboard - Nach XP"
+    elif type == "level":
+        sort_by = "level"
+        sort_field = "level"
+        title = "🏆 Komplettes Leaderboard - Nach Level"
+    elif type == "messages":
+        sort_by = "messages"
+        sort_field = "message_count"
+        title = "💬 Komplettes Leaderboard - Nach Nachrichten"
+    elif type == "voice":
+        sort_by = "voice"
+        sort_field = "voice_time"
+        title = "🎙️ Komplettes Leaderboard - Nach Sprachzeit"
+    else:
+        # Default to XP if an invalid option is provided
+        sort_by = "xp"
+        sort_field = "xp"
+        title = "⭐ Komplettes Leaderboard - Nach XP"
+    
+    # Get all users from database
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(f"SELECT user_id, username, xp, level, message_count, voice_time FROM user_levels ORDER BY {sort_field} DESC")
+    all_users = cursor.fetchall()
+    conn.close()
+    
+    if not all_users:
+        await interaction.response.send_message("Noch keine Daten in der Leaderboard-Datenbank!", ephemeral=True)
+        return
+    
+    # Create pages with 20 users each
+    users_per_page = 20
+    pages = []
+    for i in range(0, len(all_users), users_per_page):
+        page_users = all_users[i:i + users_per_page]
+        embed = discord.Embed(
+            title=title,
+            description=f"Seite {i//users_per_page + 1} von {(len(all_users)-1)//users_per_page + 1}",
+            color=discord.Color.gold()
+        )
+        
+        # Add fields for each user on this page
+        for j, user_data in enumerate(page_users):
+            user_id, username, xp, level, message_count, voice_time = user_data
+            
+            # Try to get member from guild for updated username
+            member = interaction.guild.get_member(int(user_id))
+            display_name = member.display_name if member else username
+            
+            # Format voice time
+            voice_hours = voice_time // 3600
+            voice_minutes = (voice_time % 3600) // 60
+            voice_str = f"{voice_hours}h {voice_minutes}m"
+            
+            # Value based on sort type
+            if sort_by == "xp":
+                value = f"{xp} XP (Level {level})"
+            elif sort_by == "level":
+                value = f"Level {level} ({xp} XP)"
+            elif sort_by == "messages":
+                value = f"{message_count} Nachrichten (Level {level})"
+            else:  # voice
+                value = f"{voice_str} (Level {level})"
+            
+            embed.add_field(
+                name=f"{i+j+1}. {display_name}",
+                value=value,
+                inline=False
+            )
+        
+        # Verpacke das Embed mit einer leeren Rollenliste für den Paginator
+        pages.append((embed, []))
+    
+    # Create view with pagination buttons
+    view = Paginator(pages)
+    await interaction.response.send_message(embed=pages[0][0], view=view, ephemeral=True)
+
+@leaderboard_all.autocomplete('type')
+async def leaderboard_all_autocomplete(interaction: discord.Interaction, current: str):
+    types = [
+        app_commands.Choice(name="Nach XP", value="xp"),
+        app_commands.Choice(name="Nach Level", value="level"),
+        app_commands.Choice(name="Nach Nachrichten", value="messages"),
+        app_commands.Choice(name="Nach Sprachzeit", value="voice")
+    ]
+    
+    # Filter choices based on current input
+    filtered_types = [
+        choice for choice in types 
+        if current.lower() in choice.name.lower() or current.lower() in choice.value.lower()
+    ]
+    
+    return filtered_types
+
+
+# Neue Task: Täglich Streaks aktualisieren
+@tasks.loop(hours=24)
+async def update_streaks():
+    log.info("[STREAK] Aktualisiere Streaks für alle Nutzer...")
+    
+    # Aktuelle Zeit in UTC
+    today = datetime.datetime.now(datetime.timezone.utc).date()
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Alle Nutzer aus der DB abrufen
+    cursor.execute("SELECT user_id, streak_days, last_active FROM user_levels")
+    all_users = cursor.fetchall()
+    
+    for user in all_users:
+        user_id = user[0]
+        streak_days = user[1] if user[1] is not None else 0
+        last_active = user[2]
+        
+        if not last_active:
+            continue
+            
+        try:
+            # Konvertiere Datum aus DB
+            last_active_date = datetime.datetime.fromisoformat(last_active).date()
+            days_difference = (today - last_active_date).days
+            
+            if days_difference == 1:
+                # Konsekutiver Tag - Streak erhöhen
+                new_streak = streak_days + 1
+                
+                # Multiplikator berechnen
+                multiplier = 1.0
+                if new_streak >= 14:
+                    multiplier = 1.5
+                elif new_streak >= 7:
+                    multiplier = 1.2
+                elif new_streak >= 3:
+                    multiplier = 1.1
+                    
+                cursor.execute(
+                    "UPDATE user_levels SET streak_days = ?, streak_multiplier = ? WHERE user_id = ?",
+                    (new_streak, multiplier, user_id)
+                )
+                log.info(f"[STREAK] User {user_id}: Streak auf {new_streak} Tage erhöht, Multiplikator: {multiplier}x")
+            elif days_difference > 1:
+                # Streak gebrochen
+                cursor.execute(
+                    "UPDATE user_levels SET streak_days = 0, streak_multiplier = 1.0 WHERE user_id = ?",
+                    (user_id,)
+                )
+                log.info(f"[STREAK] User {user_id}: Streak zurückgesetzt (Inaktiv seit {days_difference} Tagen)")
+        except Exception as e:
+            log.error(f"[STREAK] Fehler bei der Verarbeitung von User {user_id}: {str(e)}")
+    
+    conn.commit()
+    conn.close()
+    log.info("[STREAK] Streak-Aktualisierung abgeschlossen")
+
+# Command: Streak-Informationen anzeigen
+@tree.command(name="streak", description="Zeigt deine aktuelle Aktivitäts-Streak an")
+async def streak(interaction: discord.Interaction, user: Optional[discord.Member] = None):
+    target_user = user or interaction.user
+    user_data = await get_user_level_data(target_user.id)
+    
+    if not user_data:
+        await ensure_user_in_db(target_user.id, target_user.display_name)
+        user_data = await get_user_level_data(target_user.id)
+    
+    streak_days = user_data.get("streak_days", 0)
+    multiplier = user_data.get("streak_multiplier", 1.0)
+    
+    embed = discord.Embed(
+        title="🔥 Aktivitäts-Streak",
+        description=f"{'Du bist' if not user else f'{target_user.display_name} ist'} seit **{streak_days}** Tagen in Folge aktiv!",
+        color=discord.Color.orange()
+    )
+    
+    if multiplier > 1.0:
+        embed.add_field(
+            name="Aktueller XP-Bonus", 
+            value=f"+{int((multiplier-1)*100)}% ({multiplier}x)"
+        )
+    
+    next_threshold = 3 if streak_days < 3 else 7 if streak_days < 7 else 14 if streak_days < 14 else None
+    if next_threshold:
+        days_to_next = next_threshold - streak_days
+        next_bonus = "1.1x" if next_threshold == 3 else "1.2x" if next_threshold == 7 else "1.5x"
+        embed.add_field(
+            name="Nächster Bonus", 
+            value=f"Noch **{days_to_next}** Tag(e) bis zum {next_bonus} Multiplikator!"
+        )
+    
+    # Set user avatar if available
+    if target_user.avatar:
+        embed.set_thumbnail(url=target_user.avatar.url)
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+# Command: Admin-Funktion zum Setzen einer Streak
+@tree.command(name="set_streak", description="Setzt die Streak eines Nutzers (nur für Admins)")
+@app_commands.checks.has_permissions(administrator=True)
+async def set_streak(interaction: discord.Interaction, user: discord.Member, streak_days: int):
+    if streak_days < 0:
+        await interaction.response.send_message("Die Streak-Tage müssen mindestens 0 sein.", ephemeral=True)
+        return
+    
+    # Multiplier berechnen
+    multiplier = 1.0
+    if streak_days >= 14:
+        multiplier = 1.5
+    elif streak_days >= 7:
+        multiplier = 1.2
+    elif streak_days >= 3:
+        multiplier = 1.1
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute(
+        "UPDATE user_levels SET streak_days = ?, streak_multiplier = ?, last_active = ? WHERE user_id = ?",
+        (streak_days, multiplier, datetime.datetime.now(datetime.timezone.utc).isoformat(), str(user.id))
+    )
+    
+    # Wenn der User noch nicht in der Datenbank ist, erstelle ihn
+    if cursor.rowcount == 0:
+        await ensure_user_in_db(user.id, user.display_name)
+        cursor.execute(
+            "UPDATE user_levels SET streak_days = ?, streak_multiplier = ?, last_active = ? WHERE user_id = ?",
+            (streak_days, multiplier, datetime.datetime.now(datetime.timezone.utc).isoformat(), str(user.id))
+        )
+    
+    conn.commit()
+    conn.close()
+    
+    await interaction.response.send_message(
+        f"Streak von {user.display_name} wurde auf {streak_days} Tage gesetzt "
+        f"(Multiplikator: {multiplier}x).", 
+        ephemeral=True
+    )
+
+# Command: Top Streak-Leaderboard anzeigen
+@tree.command(name="streak_leaders", description="Zeigt die Top-Spieler nach Aktivitäts-Streak an")
+async def streak_leaders(interaction: discord.Interaction):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Top 10 Spieler nach Streak sortiert abrufen
+    cursor.execute(
+        "SELECT user_id, username, streak_days, streak_multiplier FROM user_levels ORDER BY streak_days DESC LIMIT 10"
+    )
+    top_streaks = cursor.fetchall()
+    conn.close()
+    
+    if not top_streaks:
+        await interaction.response.send_message("Noch keine Streak-Daten in der Datenbank!", ephemeral=True)
+        return
+    
+    embed = discord.Embed(
+        title="🔥 Streak Leaderboard",
+        description="Die aktivsten Mitglieder basierend auf täglicher Aktivität:",
+        color=discord.Color.orange()
+    )
+    
+    for i, streak_data in enumerate(top_streaks):
+        user_id, username, streak_days, streak_multiplier = streak_data
+        
+        # Try to get member from guild for updated username
+        member = interaction.guild.get_member(int(user_id))
+        display_name = member.display_name if member else username
+        
+        # Medal for top 3
+        medal = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else f"{i+1}."
+        
+        embed.add_field(
+            name=f"{medal} {display_name}",
+            value=f"{streak_days} Tage (x{streak_multiplier:.1f} Bonus)",
+            inline=False
+        )
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@tree.command(name="xp_history", description="Zeigt deine XP-Historie an")
+async def xp_history(interaction: discord.Interaction, user: Optional[discord.Member] = None, days: int = 7):
+    """Show user XP history for the specified number of days"""
+    target_user = user or interaction.user
+    
+    if days <= 0 or days > 30:
+        await interaction.response.send_message("Bitte wähle einen Zeitraum zwischen 1 und 30 Tagen.", ephemeral=True)
+        return
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Get XP history for the last X days
+    time_threshold = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)).isoformat()
+    cursor.execute(
+        "SELECT amount, reason, timestamp FROM xp_history WHERE user_id = ? AND timestamp > ? ORDER BY timestamp DESC LIMIT 100",
+        (str(target_user.id), time_threshold)
+    )
+    history_entries = cursor.fetchall()
+    
+    conn.close()
+    
+    if not history_entries:
+        await interaction.response.send_message(f"Keine XP-Historie für {target_user.display_name} in den letzten {days} Tagen gefunden.", ephemeral=True)
+        return
+    
+    # Group by reason for summary
+    reason_totals = {}
+    daily_xp = {}
+    
+    for amount, reason, timestamp in history_entries:
+        # Add to reason totals
+        if reason not in reason_totals:
+            reason_totals[reason] = 0
+        reason_totals[reason] += amount
+        
+        # Get day part of timestamp for daily grouping
+        try:
+            date_obj = datetime.datetime.fromisoformat(timestamp)
+            day_key = date_obj.strftime("%Y-%m-%d")
+            
+            if day_key not in daily_xp:
+                daily_xp[day_key] = 0
+            daily_xp[day_key] += amount
+        except ValueError:
+            # Handle timestamp parsing errors
+            pass
+    
+    # Create embed
+    embed = discord.Embed(
+        title=f"📊 XP-Historie: {target_user.display_name}",
+        description=f"XP-Veränderungen der letzten {days} Tage:",
+        color=discord.Color.blue()
+    )
+    
+    # Add summary by reason
+    summary_text = ""
+    total_xp = sum(reason_totals.values())
+    
+    for reason, amount in sorted(reason_totals.items(), key=lambda x: x[1], reverse=True):
+        reason_display = {
+            "message": "Nachrichten",
+            "voice": "Sprachchat (einmalig)",
+            "voice_periodic": "Sprachchat (periodisch)",
+            "admin_add": "Admin-Zuweisung",
+            "unknown": "Unbekannt"
+        }.get(reason, reason)
+        
+        percent = (amount / total_xp) * 100 if total_xp > 0 else 0
+        summary_text += f"**{reason_display}**: {amount} XP ({percent:.1f}%)\n"
+    
+    embed.add_field(name="XP nach Quelle", value=summary_text or "Keine Daten", inline=False)
+    
+    # Add daily summary - most recent days first
+    daily_summary = ""
+    for day, amount in sorted(daily_xp.items(), reverse=True)[:7]:  # Show last 7 days max
+        daily_summary += f"**{day}**: {amount} XP\n"
+    
+    embed.add_field(name="XP nach Tag", value=daily_summary or "Keine Daten", inline=False)
+    
+    # Add total
+    embed.add_field(name="Gesamt-XP in diesem Zeitraum", value=f"{total_xp} XP", inline=False)
+    
+    # Set thumbnail
+    if target_user.avatar:
+        embed.set_thumbnail(url=target_user.avatar.url)
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@tree.command(name="monthly_stats", description="Zeigt XP-Statistiken für einen bestimmten Monat")
+async def monthly_stats(interaction: discord.Interaction, year: int = None, month: int = None):
+    """Show server-wide XP statistics for a specific month"""
+    # Default to current month if not specified
+    now = datetime.datetime.now()
+    year = year or now.year
+    month = month or now.month
+    
+    # Validate date inputs
+    if year < 2020 or year > now.year + 1:
+        await interaction.response.send_message("Bitte gib ein Jahr zwischen 2020 und dem nächsten Jahr an.", ephemeral=True)
+        return
+    
+    if month < 1 or month > 12:
+        await interaction.response.send_message("Bitte gib einen Monat zwischen 1 und 12 an.", ephemeral=True)
+        return
+    
+    # Calculate date range for the month
+    start_date = datetime.datetime(year, month, 1, tzinfo=datetime.timezone.utc).isoformat()
+    
+    # Calculate end date (first day of next month)
+    if month == 12:
+        end_date = datetime.datetime(year + 1, 1, 1, tzinfo=datetime.timezone.utc).isoformat()
+    else:
+        end_date = datetime.datetime(year, month + 1, 1, tzinfo=datetime.timezone.utc).isoformat()
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Get top users for the month
+    cursor.execute(
+        """
+        SELECT user_id, SUM(amount) as total_xp
+        FROM xp_history
+        WHERE timestamp >= ? AND timestamp < ?
+        GROUP BY user_id
+        ORDER BY total_xp DESC
+        LIMIT 10
+        """,
+        (start_date, end_date)
+    )
+    top_users = cursor.fetchall()
+    
+    # Get total XP for the month
+    cursor.execute(
+        "SELECT SUM(amount) FROM xp_history WHERE timestamp >= ? AND timestamp < ?",
+        (start_date, end_date)
+    )
+    total_xp = cursor.fetchone()[0] or 0
+    
+    # Get XP by reason
+    cursor.execute(
+        """
+        SELECT reason, SUM(amount) as reason_xp
+        FROM xp_history
+        WHERE timestamp >= ? AND timestamp < ?
+        GROUP BY reason
+        ORDER BY reason_xp DESC
+        """,
+        (start_date, end_date)
+    )
+    xp_by_reason = cursor.fetchall()
+    
+    # Get XP by day
+    cursor.execute(
+        """
+        SELECT strftime('%Y-%m-%d', timestamp) as day, SUM(amount) as day_xp
+        FROM xp_history
+        WHERE timestamp >= ? AND timestamp < ?
+        GROUP BY day
+        ORDER BY day
+        """,
+        (start_date, end_date)
+    )
+    xp_by_day = cursor.fetchall()
+    
+    conn.close()
+    
+    # Create month name string
+    month_names = ["Januar", "Februar", "März", "April", "Mai", "Juni", 
+                   "Juli", "August", "September", "Oktober", "November", "Dezember"]
+    month_name = month_names[month-1]
+    
+    # Create embed
+    embed = discord.Embed(
+        title=f"📊 Server-Statistik: {month_name} {year}",
+        description=f"XP-Aktivität im Monat {month_name} {year}",
+        color=discord.Color.gold()
+    )
+    
+    # Add top users
+    if top_users:
+        top_users_text = ""
+        for i, (user_id, xp) in enumerate(top_users):
+            # Try to get member from guild for updated username
+            member = interaction.guild.get_member(int(user_id))
+            display_name = member.display_name if member else f"User {user_id}"
+            
+            medal = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else f"{i+1}."
+            top_users_text += f"{medal} **{display_name}**: {xp} XP\n"
+        
+        embed.add_field(name=f"Top {len(top_users)} Nutzer", value=top_users_text, inline=False)
+    else:
+        embed.add_field(name="Top Nutzer", value="Keine Daten für diesen Monat", inline=False)
+    
+    # Add XP by reason
+    if xp_by_reason:
+        reason_text = ""
+        for reason, amount in xp_by_reason:
+            reason_display = {
+                "message": "Nachrichten",
+                "voice": "Sprachchat (einmalig)",
+                "voice_periodic": "Sprachchat (periodisch)",
+                "admin_add": "Admin-Zuweisung",
+                "unknown": "Unbekannt"
+            }.get(reason, reason)
+            
+            percent = (amount / total_xp) * 100 if total_xp > 0 else 0
+            reason_text += f"**{reason_display}**: {amount} XP ({percent:.1f}%)\n"
+        
+        embed.add_field(name="XP nach Aktivität", value=reason_text, inline=False)
+    
+    # Add summary statistics
+    embed.add_field(name="Gesamt-XP", value=f"{total_xp} XP", inline=True)
+    embed.add_field(name="Aktive Tage", value=f"{len(xp_by_day)}", inline=True)
+    
+    # Add average per day
+    if xp_by_day:
+        avg_per_day = total_xp / len(xp_by_day)
+        embed.add_field(name="Durchschnitt pro Tag", value=f"{avg_per_day:.1f} XP", inline=True)
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@monthly_stats.autocomplete('month')
+async def month_autocomplete(interaction: discord.Interaction, current: str):
+    month_names = [
+        "Januar", "Februar", "März", "April", "Mai", "Juni", 
+        "Juli", "August", "September", "Oktober", "November", "Dezember"
+    ]
+    
+    # Datenbankabfrage für verfügbare Monate durchführen
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Wir nutzen das Jahr aus dem aktuellen Befehlskontext, wenn verfügbar
+    try:
+        # Versuche, das Jahr aus den Options zu holen
+        options = interaction.namespace
+        selected_year = getattr(options, 'year', None)
+    except:
+        selected_year = None
+    
+    # Standardmäßig das aktuelle Jahr verwenden, wenn kein Jahr ausgewählt wurde
+    if not selected_year:
+        selected_year = datetime.datetime.now().year
+    
+    # Abfrage nach Monaten mit Daten für das ausgewählte Jahr
+    cursor.execute(
+        """
+        SELECT DISTINCT strftime('%m', timestamp) as month 
+        FROM xp_history 
+        WHERE strftime('%Y', timestamp) = ? 
+        ORDER BY month
+        """,
+        (str(selected_year),)
+    )
+    
+    available_months = [int(row[0]) for row in cursor.fetchall()]
+    conn.close()
+    
+    # Wenn keine Daten für das Jahr existieren, Standard-Monate des aktuellen Jahres zeigen
+    if not available_months:
+        # Für das aktuelle Jahr zeigen wir nur Monate bis zum aktuellen Monat
+        if selected_year == datetime.datetime.now().year:
+            available_months = list(range(1, datetime.datetime.now().month + 1))
+        else:
+            available_months = list(range(1, 13))
+    
+    # Erstelle Choices nur für Monate mit Daten
+    months = [
+        app_commands.Choice(name=f"{month_names[m-1]} {selected_year}", value=m)
+        for m in available_months
+    ]
+    
+    if not current:
+        return months
+    
+    return [
+        choice for choice in months 
+        if current.lower() in choice.name.lower() or (current.isdigit() and int(current) == choice.value)
+    ]
+
+@monthly_stats.autocomplete('year')
+async def year_autocomplete(interaction: discord.Interaction, current: str):
+    # Datenbankabfrage für verfügbare Jahre durchführen
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute(
+        """
+        SELECT DISTINCT strftime('%Y', timestamp) as year 
+        FROM xp_history 
+        ORDER BY year DESC
+        """
+    )
+    
+    available_years = [int(row[0]) for row in cursor.fetchall()]
+    conn.close()
+    
+    # Wenn keine Daten gefunden wurden, zeige aktuelle Jahr und letztes Jahr
+    now = datetime.datetime.now()
+    if not available_years:
+        available_years = [now.year, now.year - 1]
+    
+    # Stelle sicher, dass das aktuelle Jahr immer dabei ist
+    if now.year not in available_years:
+        available_years.append(now.year)
+        available_years.sort(reverse=True)
+    
+    years = [
+        app_commands.Choice(name=str(year), value=year)
+        for year in available_years
+    ]
+    
+    if not current:
+        return years
+    
+    return [
+        choice for choice in years 
+        if current in choice.name
+    ]
+
+@tree.command(name="xp_graph", description="Zeigt einen Graphen deiner XP-Entwicklung an")
+async def xp_graph(interaction: discord.Interaction, user: Optional[discord.Member] = None, days: int = 30):
+    """Generate and show a graph of XP changes over time"""
+    await interaction.response.defer()  # This might take a moment
+    
+    target_user = user or interaction.user
+    
+    if days <= 0 or days > 90:
+        await interaction.followup.send("Bitte wähle einen Zeitraum zwischen 1 und 90 Tagen.", ephemeral=True)
+        return
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Get XP history for the specified days
+    time_threshold = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)).isoformat()
+    cursor.execute(
+        """
+        SELECT timestamp, amount, reason 
+        FROM xp_history 
+        WHERE user_id = ? AND timestamp > ? 
+        ORDER BY timestamp
+        """,
+        (str(target_user.id), time_threshold)
+    )
+    history_entries = cursor.fetchall()
+    
+    conn.close()
+    
+    if not history_entries:
+        await interaction.followup.send(f"Keine XP-Historie für {target_user.display_name} in den letzten {days} Tagen gefunden.", ephemeral=True)
+        return
+    
+    # Process data for plotting
+    timestamps = []
+    amounts = []
+    reasons = []
+    
+    for timestamp_str, amount, reason in history_entries:
+        try:
+            timestamp = datetime.datetime.fromisoformat(timestamp_str)
+            timestamps.append(timestamp)
+            amounts.append(amount)
+            reasons.append(reason)
+        except ValueError:
+            # Skip entries with invalid timestamps
+            continue
+    
+    if not timestamps:
+        await interaction.followup.send("Konnte die Zeitstempel nicht korrekt verarbeiten.", ephemeral=True)
+        return
+    
+    # Create daily aggregation
+    daily_xp = {}
+    
+    for i in range(len(timestamps)):
+        day_key = timestamps[i].date()
+        if day_key not in daily_xp:
+            daily_xp[day_key] = 0
+        daily_xp[day_key] += amounts[i]
+    
+    # Sort days and prepare plot data
+    plot_days = sorted(daily_xp.keys())
+    plot_values = [daily_xp[day] for day in plot_days]
+    
+    # Create a cumulative XP line
+    cumulative_xp = []
+    running_total = 0
+    for val in plot_values:
+        running_total += val
+        cumulative_xp.append(running_total)
+    
+    # Create the plot
+    plt.figure(figsize=(12, 6))
+    
+    # Bar chart for daily XP
+    ax1 = plt.subplot(111)
+    bars = ax1.bar(plot_days, plot_values, alpha=0.6, color='skyblue', width=0.8)
+    ax1.set_ylabel('Tägliche XP', color='skyblue')
+    ax1.tick_params(axis='y', labelcolor='skyblue')
+    
+    # Format x-axis to show dates nicely
+    ax1.xaxis.set_major_formatter(mdates.DateFormatter('%d.%m'))
+    if len(plot_days) > 14:
+        plt.xticks(rotation=45)
+        # Show fewer x-axis labels when there are many days
+        ax1.xaxis.set_major_locator(mdates.DayLocator(interval=max(1, len(plot_days) // 10)))
+    
+    # Add cumulative line on secondary y-axis
+    ax2 = ax1.twinx()
+    ax2.plot(plot_days, cumulative_xp, color='orange', marker='o', linestyle='-', linewidth=2, markersize=4)
+    ax2.set_ylabel('Kumulative XP', color='orange')
+    ax2.tick_params(axis='y', labelcolor='orange')
+    
+    # Set titles and labels
+    plt.title(f'XP-Entwicklung für {target_user.display_name} (letzte {days} Tage)')
+    plt.grid(True, linestyle='--', alpha=0.6)
+    
+    # Ensure layout fits well
+    plt.tight_layout()
+    
+    # Save plot to a buffer
+    buffer = io.BytesIO()
+    plt.savefig(buffer, format='png', dpi=100)
+    buffer.seek(0)
+    plt.close()
+    
+    # Calculate statistics
+    total_xp = sum(plot_values)
+    avg_daily_xp = total_xp / len(plot_days) if plot_days else 0
+    max_day = max(plot_days, key=lambda day: daily_xp[day]) if plot_days else None
+    max_value = daily_xp[max_day] if max_day else 0
+    
+    # Create description with statistics
+    description = (
+        f"**Zeitraum:** {plot_days[0].strftime('%d.%m.%Y')} bis {plot_days[-1].strftime('%d.%m.%Y')}\n"
+        f"**Gesamt-XP:** {total_xp} XP\n"
+        f"**Durchschnitt:** {avg_daily_xp:.1f} XP pro Tag\n"
+        f"**Höchster Tag:** {max_day.strftime('%d.%m.%Y')} mit {max_value} XP"
+    )
+    
+    # Create file and send
+    file = discord.File(buffer, filename="xp_graph.png")
+    embed = discord.Embed(
+        title=f"📈 XP-Grafik für {target_user.display_name}",
+        description=description,
+        color=discord.Color.blue()
+    )
+    embed.set_image(url="attachment://xp_graph.png")
+    
+    await interaction.followup.send(embed=embed, file=file, ephemeral=True)
+
+@tree.command(name="server_activity", description="Zeigt die Server-Aktivität als Grafik an")
+@app_commands.checks.has_permissions(administrator=True)
+async def server_activity(interaction: discord.Interaction, days: int = 30):
+    """Generate and show a graph of server-wide XP activity"""
+    await interaction.response.defer()  # This might take a moment
+    
+    if days <= 0 or days > 90:
+        await interaction.followup.send("Bitte wähle einen Zeitraum zwischen 1 und 90 Tagen.", ephemeral=True)
+        return
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Get XP history for all users in the specified time range
+    time_threshold = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)).isoformat()
+    cursor.execute(
+        """
+        SELECT timestamp, SUM(amount) as daily_xp, reason
+        FROM xp_history 
+        WHERE timestamp > ?
+        GROUP BY strftime('%Y-%m-%d', timestamp), reason
+        ORDER BY timestamp
+        """,
+        (time_threshold,)
+    )
+    history_entries = cursor.fetchall()
+    
+    conn.close()
+    
+    if not history_entries:
+        await interaction.followup.send(f"Keine XP-Daten für die letzten {days} Tage gefunden.", ephemeral=True)
+        return
+    
+    # Group data by day and reason
+    daily_data = {}
+    
+    for timestamp_str, amount, reason in history_entries:
+        try:
+            timestamp = datetime.datetime.fromisoformat(timestamp_str)
+            day_key = timestamp.date()
+            
+            if day_key not in daily_data:
+                daily_data[day_key] = {'total': 0, 'voice': 0, 'message': 0, 'admin': 0, 'other': 0}
+            
+            daily_data[day_key]['total'] += amount
+            
+            # Group reasons
+            if 'voice' in reason:
+                daily_data[day_key]['voice'] += amount
+            elif reason == 'message':
+                daily_data[day_key]['message'] += amount
+            elif reason == 'admin_add':
+                daily_data[day_key]['admin'] += amount
+            else:
+                daily_data[day_key]['other'] += amount
+                
+        except ValueError:
+            # Skip entries with invalid timestamps
+            continue
+    
+    # Sort days
+    sorted_days = sorted(daily_data.keys())
+    
+    if not sorted_days:
+        await interaction.followup.send("Konnte die Daten nicht korrekt verarbeiten.", ephemeral=True)
+        return
+    
+    # Prepare plot data
+    plot_days = sorted_days
+    total_values = [daily_data[day]['total'] for day in plot_days]
+    voice_values = [daily_data[day]['voice'] for day in plot_days]
+    message_values = [daily_data[day]['message'] for day in plot_days]
+    admin_values = [daily_data[day]['admin'] for day in plot_days]
+    other_values = [daily_data[day]['other'] for day in plot_days]
+    
+    # Create the stacked bar plot
+    plt.figure(figsize=(14, 8))
+    
+    # Set font properties to use both DejaVu Sans and Noto Color Emoji
+    plt.rcParams['font.family'] = ['DejaVu Sans', 'Noto Color Emoji']
+    
+    # Plot stacked bars
+    plt.bar(plot_days, message_values, color='#3498db', label='Nachrichten')
+    plt.bar(plot_days, voice_values, bottom=message_values, color='#2ecc71', label='Sprachchat')
+    
+    # Calculate position for admin and other
+    bottom_values = []
+    for i in range(len(plot_days)):
+        bottom_values.append(message_values[i] + voice_values[i])
+    
+    plt.bar(plot_days, admin_values, bottom=bottom_values, color='#e74c3c', label='Admin')
+    
+    # Calculate new bottom for other
+    for i in range(len(plot_days)):
+        bottom_values[i] += admin_values[i]
+    
+    plt.bar(plot_days, other_values, bottom=bottom_values, color='#95a5a6', label='Andere')
+    
+    # Format x-axis to show dates nicely
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%d.%m'))
+    if len(plot_days) > 14:
+        plt.xticks(rotation=45)
+        # Show fewer x-axis labels when there are many days
+        plt.gca().xaxis.set_major_locator(mdates.DayLocator(interval=max(1, len(plot_days) // 10)))
+    
+    # Set titles and labels
+    plt.title(f'Server-Aktivität der letzten {days} Tage')
+    plt.xlabel('Datum')
+    plt.ylabel('XP')
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.3)
+    
+    # Ensure layout fits well
+    plt.tight_layout()
+    
+    # Save plot to a buffer
+    buffer = io.BytesIO()
+    plt.savefig(buffer, format='png', dpi=100)
+    buffer.seek(0)
+    plt.close()
+    
+    # Calculate statistics
+    total_xp = sum(total_values)
+    active_days = len(plot_days)
+    avg_per_day = total_xp / active_days if active_days > 0 else 0
+    max_day = max(plot_days, key=lambda day: daily_data[day]['total']) if plot_days else None
+    max_value = daily_data[max_day]['total'] if max_day else 0
+    
+    # Calculate percentage by type
+    total_voice = sum(voice_values)
+    total_message = sum(message_values)
+    total_admin = sum(admin_values)
+    total_other = sum(other_values)
+    
+    voice_percent = (total_voice / total_xp * 100) if total_xp > 0 else 0
+    message_percent = (total_message / total_xp * 100) if total_xp > 0 else 0
+    admin_percent = (total_admin / total_xp * 100) if total_xp > 0 else 0
+    other_percent = (total_other / total_xp * 100) if total_xp > 0 else 0
+    
+    # Create description with statistics
+    description = (
+        f"**Zeitraum:** {plot_days[0].strftime('%d.%m.%Y')} bis {plot_days[-1].strftime('%d.%m.%Y')}\n"
+        f"**Gesamt-XP:** {total_xp:,} XP über {active_days} Tage\n"
+        f"**Durchschnitt:** {avg_per_day:.1f} XP pro Tag\n"
+        f"**Höchster Tag:** {max_day.strftime('%d.%m.%Y')} mit {max_value:,} XP\n\n"
+        f"**Verteilung:**\n"
+        f"🎙️ Sprachchat: {total_voice:,} XP ({voice_percent:.1f}%)\n"
+        f"💬 Nachrichten: {total_message:,} XP ({message_percent:.1f}%)\n"
+        f"👑 Admin: {total_admin:,} XP ({admin_percent:.1f}%)\n"
+        f"🔍 Andere: {total_other:,} XP ({other_percent:.1f}%)"
+    )
+    
+    # Create file and send
+    file = discord.File(buffer, filename="server_activity.png")
+    embed = discord.Embed(
+        title="📊 Server-Aktivitäts-Analyse",
+        description=description,
+        color=discord.Color.gold()
+    )
+    embed.set_image(url="attachment://server_activity.png")
+    
+    await interaction.followup.send(embed=embed, file=file, ephemeral=False)
+
+bot.run(DISCORD_TOKEN)
