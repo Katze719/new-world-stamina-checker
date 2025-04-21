@@ -19,6 +19,9 @@ RUN apt-get update && apt-get install -y \
     fonts-dejavu \
     && rm -rf /var/lib/apt/lists/*
 
+# Note: There's an issue with matplotlib loading the Noto Color Emoji font
+# In the code we only use DejaVu Sans for compatibility
+
 RUN echo "de_DE.UTF-8 UTF-8" >> /etc/locale.gen; \
     locale-gen
 

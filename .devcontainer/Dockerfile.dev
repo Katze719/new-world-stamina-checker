@@ -15,7 +15,12 @@ RUN apt-get update && apt-get install -y \
     ffmpeg \
     git-lfs \
     locales \
+    fonts-dejavu \
+    fonts-noto-color-emoji \
     && rm -rf /var/lib/apt/lists/*
+
+# Note: There's an issue with matplotlib loading the Noto Color Emoji font
+# In the code we only use DejaVu Sans for compatibility
 
 RUN pip install poetry
 

@@ -3127,8 +3127,8 @@ async def server_activity(interaction: discord.Interaction, days: int = 30):
     # Create the stacked bar plot
     plt.figure(figsize=(14, 8))
     
-    # Set font properties to use both DejaVu Sans and Noto Color Emoji
-    plt.rcParams['font.family'] = ['DejaVu Sans', 'Noto Color Emoji']
+    # Set font properties - only use DejaVu Sans which is available
+    plt.rcParams['font.family'] = ['DejaVu Sans']
     
     # Plot stacked bars
     plt.bar(plot_days, message_values, color='#3498db', label='Nachrichten')
