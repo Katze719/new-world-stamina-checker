@@ -1,4 +1,4 @@
-## Version 1.1.0-beta.21
+## Version 1.1.2-release
 
 ### **Neue Funktionen**
 - **XP-Verlaufsaufzeichnung:**
@@ -9,10 +9,10 @@
 
 - **Statistik-Dashboard:**
   - Neue Befehle für Aktivitätsanalyse:
-    - `/xp_history [user] [days]` - Zeigt die XP-Historie mit Quellen-Aufschlüsselung
+    - `/xp_history` - Zeigt die XP-Historie mit Quellen-Aufschlüsselung
     - `/monthly_stats [year] [month]` - Zeigt Server-Statistiken für einen bestimmten Monat
-    - `/xp_graph [user] [days]` - Erzeugt einen visuellen Graphen der XP-Entwicklung
-    - `/server_activity [days]` - Zeigt einen Aktivitätsgraphen des gesamten Servers
+    - `/xp_graph` - Erzeugt einen visuellen Graphen der XP-Entwicklung
+    - `/server_activity` - Zeigt einen Aktivitätsgraphen des gesamten Servers
 
 ### **Verbesserungen**
 - **Erweiterte Datenbank:**

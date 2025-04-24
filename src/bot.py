@@ -827,8 +827,16 @@ def parse_changelog():
 async def changelog(ctx: discord.Interaction):
     latest_changelog = parse_changelog()
     embed = discord.Embed(title="Latest Changelog", description=f"[View the full changelog here](https://github.com/Katze719/new-world-stamina-checker/blob/main/CHANGELOG.txt)\n\n{latest_changelog}", color=discord.Color.blue())
-    if len(latest_changelog) > 2048:
-        latest_changelog = latest_changelog[:2045] + "..."
+    if len(latest_changelog) > 2000:
+        latest_changelog = latest_changelog[:2000] + "..."
+
+
+    # Get specific user from guild where command was executed
+    target_user = ctx.guild.get_member(617685482331045908)
+    if target_user:
+        embed.set_author(name=f"von eurer {target_user.display_name}")
+        if target_user.avatar:
+            embed.set_thumbnail(url=target_user.avatar.url)
     await ctx.response.send_message(embed=embed)
 
 def pattern_to_regex(pattern: str) -> re.Pattern:
@@ -1476,6 +1484,8 @@ async def check_for_raidhelpers():
 async def test(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
+    await interaction.edit_original_response(content=f"Your user ID is: {interaction.user.id}")
+
     # def parse_name(member : discord.Member):
     #     pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
     #     regex = pattern_to_regex(pattern)
@@ -1486,7 +1496,7 @@ async def test(interaction: discord.Interaction):
     #         return member.display_name
 
     # await spreadsheet.payoutlist.update_payoutlist(bot, spreadsheet_acc, parse_name, spreadsheet_role_settings_manager, gp_channel_manager)
-    await interaction.edit_original_response(content="Nutzer wurden Aktualisiert!")
+    # await interaction.edit_original_response(content="Nutzer wurden Aktualisiert!")
 
     # def parse_name(member : discord.Member):
     #     pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
