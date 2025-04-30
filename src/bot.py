@@ -1897,6 +1897,15 @@ async def add_xp(user_id, username, xp_amount, reason="unknown"):
     conn.commit()
     conn.close()
     
+    # Update roles if level changed
+    if new_level > current_level:
+        # Find the guild and member object
+        for guild in bot.guilds:
+            member = guild.get_member(int(user_id))
+            if member:
+                await update_member_roles(member)
+                break
+    
     # Return True if level up occurred
     return new_level > current_level, new_level if new_level > current_level else None
 
@@ -3221,5 +3230,72 @@ async def server_activity(interaction: discord.Interaction, days: int = 30):
     embed.set_image(url="attachment://server_activity.png")
     
     await interaction.followup.send(embed=embed, file=file, ephemeral=False)
+
+# Load level roles configuration
+LEVEL_ROLES_FILE = "./level_roles.json"
+level_roles_manager = jsonFileManager.JsonFileManager(LEVEL_ROLES_FILE)
+
+async def get_level_role(guild: discord.Guild, level: int) -> Optional[discord.Role]:
+    """Get the appropriate role for a given level"""
+    roles_config = level_roles_manager.load()
+    if not roles_config or "roles" not in roles_config:
+        return None
+    
+    # Find the highest role that the user qualifies for
+    highest_role = None
+    for role_config in roles_config["roles"]:
+        if level >= role_config["level"]:
+            # Try to find existing role
+            role = discord.utils.get(guild.roles, name=role_config["name"])
+            if not role:
+                # Create role if it doesn't exist
+                try:
+                    role = await guild.create_role(
+                        name=role_config["name"],
+                        color=discord.Color.from_str(role_config["color"]),
+                        reason="Level-based role creation"
+                    )
+                except discord.Forbidden:
+                    log.error(f"Bot lacks permissions to create role {role_config['name']}")
+                    continue
+            highest_role = role
+    
+    return highest_role
+
+async def update_member_roles(member: discord.Member):
+    """Update a member's roles based on their level"""
+    # Get user's level
+    user_data = await get_user_level_data(member.id)
+    if not user_data:
+        return
+    
+    current_level = user_data["level"]
+    
+    # Get appropriate role for current level
+    new_role = await get_level_role(member.guild, current_level)
+    if not new_role:
+        return
+    
+    # Get all level roles
+    roles_config = level_roles_manager.load()
+    if not roles_config or "roles" not in roles_config:
+        return
+    
+    level_role_names = [role["name"] for role in roles_config["roles"]]
+    
+    # Remove all level roles
+    for role in member.roles:
+        if role.name in level_role_names:
+            try:
+                await member.remove_roles(role)
+            except discord.Forbidden:
+                log.error(f"Bot lacks permissions to remove role {role.name} from {member.display_name}")
+    
+    # Add new role
+    try:
+        await member.add_roles(new_role)
+        log.info(f"Updated roles for {member.display_name} to {new_role.name}")
+    except discord.Forbidden:
+        log.error(f"Bot lacks permissions to add role {new_role.name} to {member.display_name}")
 
 bot.run(DISCORD_TOKEN)

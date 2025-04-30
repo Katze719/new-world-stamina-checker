@@ -1,0 +1,109 @@
+{
+    "roles": [
+        {
+            "level": 0,
+            "name": "🌱 Fresh Potato",
+            "color": "0xe6f2e6"
+        },
+        {
+            "level": 20,
+            "name": "🤫 AFK Ninja",
+            "color": "0xe6e6f2"
+        },
+        {
+            "level": 35,
+            "name": "🩸 Bloodbath Buffoon",
+            "color": "0xf2e6e6"
+        },
+        {
+            "level": 50,
+            "name": "⚔️ PvP Peon",
+            "color": "0xe6f2f2"
+        },
+        {
+            "level": 55,
+            "name": "🎯 Aim Assassin",
+            "color": "0xf2e6f2"
+        },
+        {
+            "level": 60,
+            "name": "❓ Button Masher",
+            "color": "0xe6f2d9"
+        },
+        {
+            "level": 65,
+            "name": "⚡ Speed Demon",
+            "color": "0xf2d9e6"
+        },
+        {
+            "level": 70,
+            "name": "⚔️ Lag Warrior",
+            "color": "0xd9e6f2"
+        },
+        {
+            "level": 75,
+            "name": "🎮 Controller Crusher",
+            "color": "0xe6d9f2"
+        },
+        {
+            "level": 80,
+            "name": "🏆 Tryhard Titan",
+            "color": "0xf2d9d9"
+        },
+        {
+            "level": 83,
+            "name": "🎯 Headshot Hero",
+            "color": "0xd9f2e6"
+        },
+        {
+            "level": 86,
+            "name": "⚡ Lightning Lord",
+            "color": "0xf2e6d9"
+        },
+        {
+            "level": 88,
+            "name": "🔥 Flame Thrower",
+            "color": "0xe6d9f2"
+        },
+        {
+            "level": 90,
+            "name": "🌟 Clutch Kidd",
+            "color": "0xd9f2f2"
+        },
+        {
+            "level": 93,
+            "name": "🎯 Precision Pro",
+            "color": "0xf2f2d9"
+        },
+        {
+            "level": 95,
+            "name": "💫 Hitbox Hacker",
+            "color": "0xd9d9f2"
+        },
+        {
+            "level": 96,
+            "name": "🎮 Elite Gamer",
+            "color": "0xf2d9f2"
+        },
+        {
+            "level": 97,
+            "name": "⚔️ Battle Master",
+            "color": "0xd9f2d9"
+        },
+        {
+            "level": 98,
+            "name": "🌟 Star Player",
+            "color": "0xf2e6f2"
+        },
+        {
+            "level": 99,
+            "name": "👑 Almost Legend",
+            "color": "0xe6f2e6"
+        },
+        {
+            "level": 100,
+            "name": "👑 GG EZ Clap",
+            "color": "0xf2f2e6"
+        }
+    ]
+}
