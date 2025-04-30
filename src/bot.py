@@ -2432,65 +2432,124 @@ async def leaderboard_all_autocomplete(interaction: discord.Interaction, current
     return filtered_types
 
 
-# Neue Task: Täglich Streaks aktualisieren
-@tasks.loop(hours=24)
+# Stündlicher Check statt tägliches Update
+@tasks.loop(hours=1)
 async def update_streaks():
-    log.info("[STREAK] Aktualisiere Streaks für alle Nutzer...")
+    log.info("[STREAK] Prüfe Streaks für alle Nutzer...")
     
-    # Aktuelle Zeit in UTC
-    today = datetime.datetime.now(datetime.timezone.utc).date()
+    now = datetime.datetime.now(datetime.timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    yesterday = now - datetime.timedelta(hours=24)
+    yesterday_str = yesterday.isoformat()
     
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    # Alle Nutzer aus der DB abrufen
-    cursor.execute("SELECT user_id, streak_days, last_active FROM user_levels")
-    all_users = cursor.fetchall()
+    # Alle Nutzer mit aktiven Streaks (> 0) abrufen
+    cursor.execute("SELECT user_id, username, streak_days, streak_multiplier FROM user_levels WHERE streak_days > 0")
+    streak_users = cursor.fetchall()
     
-    for user in all_users:
-        user_id = user[0]
-        streak_days = user[1] if user[1] is not None else 0
-        last_active = user[2]
+    for user in streak_users:
+        user_id, username, streak_days, streak_multiplier = user
         
-        if not last_active:
-            continue
-            
         try:
-            # Konvertiere Datum aus DB
-            last_active_date = datetime.datetime.fromisoformat(last_active).date()
-            days_difference = (today - last_active_date).days
+            # Prüfe, ob es einen XP-Eintrag in den letzten 24 Stunden gibt
+            cursor.execute("""
+                SELECT COUNT(*) FROM xp_history 
+                WHERE user_id = ? AND timestamp > ?
+            """, (user_id, yesterday_str))
             
-            if days_difference == 1:
-                # Konsekutiver Tag - Streak erhöhen
-                new_streak = streak_days + 1
-                
-                # Multiplikator berechnen
-                multiplier = 1.0
-                if new_streak >= 14:
-                    multiplier = 1.5
-                elif new_streak >= 7:
-                    multiplier = 1.2
-                elif new_streak >= 3:
-                    multiplier = 1.1
-                    
-                cursor.execute(
-                    "UPDATE user_levels SET streak_days = ?, streak_multiplier = ? WHERE user_id = ?",
-                    (new_streak, multiplier, user_id)
-                )
-                log.info(f"[STREAK] User {user_id}: Streak auf {new_streak} Tage erhöht, Multiplikator: {multiplier}x")
-            elif days_difference > 1:
-                # Streak gebrochen
+            has_recent_activity = cursor.fetchone()[0] > 0
+            
+            if not has_recent_activity:
+                # Keine Aktivität in 24 Stunden - Streak zurücksetzen
                 cursor.execute(
                     "UPDATE user_levels SET streak_days = 0, streak_multiplier = 1.0 WHERE user_id = ?",
                     (user_id,)
                 )
-                log.info(f"[STREAK] User {user_id}: Streak zurückgesetzt (Inaktiv seit {days_difference} Tagen)")
+                
+                # Streak-Verlust in xp_history dokumentieren
+                cursor.execute(
+                    "INSERT INTO xp_history (user_id, amount, reason, timestamp) VALUES (?, ?, ?, ?)",
+                    (user_id, 0, f"Streak verloren (>24h Inaktivität, vorher: {streak_days} Tage)", now.isoformat())
+                )
+                
+                log.info(f"[STREAK] User {username} (ID: {user_id}): Streak zurückgesetzt (>24h Inaktivität)")
         except Exception as e:
             log.error(f"[STREAK] Fehler bei der Verarbeitung von User {user_id}: {str(e)}")
     
+    # Jetzt erhöhen wir Streaks für Nutzer, die gestern und heute aktiv waren
+    # Zuerst finden wir alle Nutzer, die in den letzten 24-48 Stunden aktiv waren
+    yesterday_minus_one = now - datetime.timedelta(hours=48)
+    
+    cursor.execute("""
+        SELECT DISTINCT user_id FROM xp_history 
+        WHERE timestamp > ? AND timestamp < ?
+    """, (yesterday_minus_one.isoformat(), yesterday_str))
+    
+    users_active_yesterday = [row[0] for row in cursor.fetchall()]
+    
+    # Dann prüfen wir, welche von diesen Nutzern auch heute aktiv waren
+    for user_id in users_active_yesterday:
+        try:
+            # Prüfe, ob die Streak bereits heute erhöht wurde
+            cursor.execute("""
+                SELECT COUNT(*) FROM xp_history 
+                WHERE user_id = ? AND reason LIKE 'Streak erhöht auf%' AND timestamp >= ?
+            """, (user_id, today_start.isoformat()))
+            
+            streak_already_increased_today = cursor.fetchone()[0] > 0
+            
+            if streak_already_increased_today:
+                # Streak wurde heute bereits erhöht, überspringen
+                continue
+                
+            # Prüfe, ob der Nutzer heute aktiv war
+            cursor.execute("""
+                SELECT COUNT(*) FROM xp_history 
+                WHERE user_id = ? AND timestamp > ?
+            """, (user_id, yesterday_str))
+            
+            active_today = cursor.fetchone()[0] > 0
+            
+            if active_today:
+                # Nutzer war gestern und heute aktiv - Streak erhöhen
+                cursor.execute("""
+                    SELECT streak_days, username FROM user_levels WHERE user_id = ?
+                """, (user_id,))
+                
+                result = cursor.fetchone()
+                if result:
+                    current_streak, username = result
+                    new_streak = current_streak + 1
+                    
+                    # Multiplikator berechnen
+                    multiplier = 1.0
+                    if new_streak >= 14:
+                        multiplier = 1.5
+                    elif new_streak >= 7:
+                        multiplier = 1.2
+                    elif new_streak >= 3:
+                        multiplier = 1.1
+                    
+                    cursor.execute(
+                        "UPDATE user_levels SET streak_days = ?, streak_multiplier = ? WHERE user_id = ?",
+                        (new_streak, multiplier, user_id)
+                    )
+                    
+                    # Streak-Erhöhung in xp_history dokumentieren
+                    cursor.execute(
+                        "INSERT INTO xp_history (user_id, amount, reason, timestamp) VALUES (?, ?, ?, ?)",
+                        (user_id, 0, f"Streak erhöht auf {new_streak} Tage (x{multiplier} Multiplikator)", now.isoformat())
+                    )
+                    
+                    log.info(f"[STREAK] User {username} (ID: {user_id}): Streak auf {new_streak} Tage erhöht, Multiplikator: {multiplier}x")
+        except Exception as e:
+            log.error(f"[STREAK] Fehler bei der Erhöhung der Streak für User {user_id}: {str(e)}")
+    
     conn.commit()
     conn.close()
-    log.info("[STREAK] Streak-Aktualisierung abgeschlossen")
+    log.info("[STREAK] Streak-Prüfung abgeschlossen")
 
 # Command: Streak-Informationen anzeigen
 @tree.command(name="streak", description="Zeigt deine aktuelle Aktivitäts-Streak an")
