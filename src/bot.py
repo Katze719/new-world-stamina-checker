@@ -3296,7 +3296,7 @@ level_roles_manager = jsonFileManager.JsonFileManager(LEVEL_ROLES_FILE)
 
 async def get_level_role(guild: discord.Guild, level: int) -> Optional[discord.Role]:
     """Get the appropriate role for a given level"""
-    roles_config = level_roles_manager.load()
+    roles_config = await level_roles_manager.load()
     if not roles_config or "roles" not in roles_config:
         return None
     
@@ -3336,7 +3336,7 @@ async def update_member_roles(member: discord.Member):
         return
     
     # Get all level roles
-    roles_config = level_roles_manager.load()
+    roles_config = await level_roles_manager.load()
     if not roles_config or "roles" not in roles_config:
         return
     
