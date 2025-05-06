@@ -122,7 +122,8 @@ class UrlaubsModal(discord.ui.Modal, title="Abwesenheit eintragen"):
             if start_date > end_date:
                 await interaction.response.send_message("Das Startdatum darf nicht nach dem Enddatum liegen!", ephemeral=True)
                 return
-            await interaction.response.send_message(f"Abwesenehit eingetragen von {start_date} bis {end_date}!")
+            await interaction.response.send_message(f"Abwesenehit eingetragen von {start_date} bis {end_date}! Dieser Channel wurde automatisch mit einem 🔴 markiert.")
             await _abwesenheit(self.P_client, interaction, self.P_parse_display_name, self.P_spread_settings, f"{start_date} - {end_date} {self.grund.value}")
+            await interaction.channel.edit(name=f"{interaction.channel.name} 🔴")
         except ValueError:
             await interaction.response.send_message("Bitte gib die Daten im Format YYYY-MM-DD ein.", ephemeral=True)
