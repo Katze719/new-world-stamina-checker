@@ -67,18 +67,174 @@ ROLE_NAME_UPDATE_SETTINGS_PATH = "./role_name_settings.json"
 GP_CHANNEL_IDS_FILE = "./gp_channel_ids.json"
 SPREADSHEET_ROLE_SETTINGS_PATH = "./spreadsheet_role_settings.json"
 WRITTEN_RAIDHELPERS_FILE = "./written_raidhelpers.json"
+EVENTS_FILE_PATH = "./scheduled_events.json"
 
 vod_channel_manager = jsonFileManager.JsonFileManager(VOD_CHANNELS_FILE_PATH, ensure_hidden_attribute)
 settings_manager = jsonFileManager.JsonFileManager(ROLE_NAME_UPDATE_SETTINGS_PATH)
 gp_channel_manager = jsonFileManager.JsonFileManager(GP_CHANNEL_IDS_FILE)
 spreadsheet_role_settings_manager = jsonFileManager.JsonFileManager(SPREADSHEET_ROLE_SETTINGS_PATH)
 written_raidhelpers_manager = jsonFileManager.JsonFileManager(WRITTEN_RAIDHELPERS_FILE)
+events_manager = jsonFileManager.JsonFileManager(EVENTS_FILE_PATH)
 
 # Initialize SQLite database for level system
 DB_PATH = "./level_system.db"
 
 # Level system constants
 MAX_LEVEL = 100
+
+# Event Types
+class EventType:
+    REMOVE_ABSENCE_INDICATOR = "remove_absence_indicator"
+    # Add more event types here as needed
+
+# Event management functions
+async def add_event(event_type, execution_date, context):
+    """Add a new event to the events file.
+    
+    Args:
+        event_type (str): Type of event (use EventType constants)
+        execution_date (str): ISO format date when event should be executed
+        context (dict): Additional context data needed for execution
+    """
+    events = await events_manager.load() or {"events": []}
+    
+    new_event = {
+        "id": str(int(time.time() * 1000)),  # Unique ID based on timestamp
+        "type": event_type,
+        "execution_date": execution_date,
+        "context": context,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
+    }
+    
+    events["events"].append(new_event)
+    await events_manager.save(events)
+    log.info(f"Added new event: {event_type} scheduled for {execution_date}")
+    return new_event["id"]
+
+async def remove_event(event_id):
+    """Remove an event from the events file."""
+    events = await events_manager.load() or {"events": []}
+    
+    # Filter out the event with the given ID
+    events["events"] = [event for event in events["events"] if event.get("id") != event_id]
+    await events_manager.save(events)
+    log.info(f"Removed event with ID: {event_id}")
+
+async def add_absence_end_event(user_id, username, channel_id, end_date):
+    """Add an event to remove the absence indicator when the absence period ends."""
+    execution_date = end_date.isoformat()
+    context = {
+        "user_id": user_id,
+        "username": username,
+        "channel_id": channel_id
+    }
+    
+    return await add_event(EventType.REMOVE_ABSENCE_INDICATOR, execution_date, context)
+
+# Event processing functions
+async def process_remove_absence_indicator(event):
+    """Process an event to remove the absence indicator from a channel name."""
+    context = event.get("context", {})
+    channel_id = context.get("channel_id")
+    user_id = context.get("user_id")
+    username = context.get("username")
+    
+    if not channel_id:
+        log.error(f"Missing channel_id in event context: {event}")
+        return False
+    
+    channel = bot.get_channel(int(channel_id))
+    if not channel:
+        log.error(f"Channel not found for ID: {channel_id}")
+        return False
+    
+    # Remove red circle (-🔴) from the channel name if present
+    if '-🔴' in channel.name:
+        try:
+            new_name = channel.name.replace('-🔴', '').strip()
+            await channel.edit(name=new_name)
+            log.info(f"Removed absence indicator from channel {channel.name} for user {username}")
+            
+            # Send notification message if user is still in the server
+            if user_id:
+                guild = channel.guild
+                member = guild.get_member(int(user_id))
+                if member:
+                    try:
+                        await channel.send(f"{member.mention} Deine Abwesenheit ist jetzt vorbei. Willkommen zurück!")
+                    except discord.HTTPException:
+                        log.error(f"Failed to send welcome back message to {username}")
+            
+            return True
+        except discord.Forbidden:
+            log.error(f"Bot lacks permission to edit channel {channel.name}")
+        except discord.HTTPException as e:
+            log.error(f"HTTP error editing channel {channel.name}: {str(e)}")
+    else:
+        log.info(f"No absence indicator found in channel {channel.name}")
+    
+    return False
+
+# Main event processor
+async def process_event(event):
+    """Process a single event based on its type."""
+    event_type = event.get("type")
+    
+    if event_type == EventType.REMOVE_ABSENCE_INDICATOR:
+        return await process_remove_absence_indicator(event)
+    
+    # Add more event type handlers here
+    
+    log.warning(f"Unknown event type: {event_type}")
+    return False
+
+@tasks.loop(minutes=30)
+async def process_scheduled_events():
+    """Check and process all scheduled events that are due."""
+    log.info("Processing scheduled events...")
+    
+    events_data = await events_manager.load() or {"events": []}
+    events = events_data["events"]
+    
+    if not events:
+        log.info("No events to process.")
+        return
+    
+    current_time = datetime.datetime.now(datetime.timezone.utc)
+    events_to_remove = []
+    
+    for event in events:
+        try:
+            execution_date_str = event.get("execution_date")
+            if not execution_date_str:
+                log.error(f"Event missing execution date: {event}")
+                events_to_remove.append(event)
+                continue
+            
+            execution_date = datetime.datetime.fromisoformat(execution_date_str)
+            
+            # Execute event if it's due
+            if execution_date <= current_time:
+                log.info(f"Processing event: {event.get('type')} (ID: {event.get('id')})")
+                success = await process_event(event)
+                
+                if success:
+                    log.info(f"Successfully processed event {event.get('id')}")
+                else:
+                    log.warning(f"Failed to process event {event.get('id')}")
+                
+                events_to_remove.append(event)
+        except ValueError:
+            log.error(f"Invalid execution date format in event: {event}")
+            events_to_remove.append(event)
+        except Exception as e:
+            log.error(f"Error processing event {event.get('id')}: {str(e)}")
+    
+    # Remove processed events
+    if events_to_remove:
+        events_data["events"] = [event for event in events if event not in events_to_remove]
+        await events_manager.save(events_data)
+        log.info(f"Removed {len(events_to_remove)} processed or invalid events.")
 
 def get_xp_requirement(level):
     """Berechnet die XP-Anforderung für ein bestimmtes Level mit einer mathematischen Formel.
@@ -461,6 +617,10 @@ async def on_ready():
     # Streak-Update-Task starten
     if not update_streaks.is_running():
         update_streaks.start()
+    
+    # Start the event processing loop
+    if not process_scheduled_events.is_running():
+        process_scheduled_events.start()
 
     log.info(f"Bot ist eingeloggt als {bot.user}")
     try:
@@ -1764,7 +1924,9 @@ async def abwesenheit(interaction: discord.Interaction):
                 return bracket_match.group(1).strip()
                 
             return member.display_name
-        
+    
+    # Add event management function to the modal for absence end handling
+    modal.add_absence_end_event = add_absence_end_event
     modal.fake_init(spreadsheet_acc, parse_name, spreadsheet_role_settings_manager)
     await interaction.response.send_modal(modal)
 
@@ -3356,5 +3518,171 @@ async def update_member_roles(member: discord.Member):
         log.info(f"Updated roles for {member.display_name} to {new_role.name}")
     except discord.Forbidden:
         log.error(f"Bot lacks permissions to add role {new_role.name} to {member.display_name}")
+
+@tree.command(name="list_events", description="Zeigt alle geplanten Events an")
+@app_commands.checks.has_permissions(administrator=True)
+async def list_events(interaction: discord.Interaction):
+    """List all scheduled events (admin only)"""
+    events_data = await events_manager.load() or {"events": []}
+    events = events_data["events"]
+    
+    if not events:
+        await interaction.response.send_message("Keine geplanten Events vorhanden.", ephemeral=True)
+        return
+    
+    # Sort events by execution date
+    events.sort(key=lambda e: e.get("execution_date", ""))
+    
+    # Create embed
+    embed = discord.Embed(
+        title="📅 Geplante Events",
+        description=f"Derzeit sind {len(events)} Events geplant.",
+        color=discord.Color.blue()
+    )
+    
+    current_time = datetime.datetime.now(datetime.timezone.utc)
+    
+    # Add events to embed
+    for i, event in enumerate(events):
+        try:
+            event_id = event.get("id", "Unbekannt")
+            event_type = event.get("type", "Unbekannt")
+            execution_date_str = event.get("execution_date", "Unbekannt")
+            context = event.get("context", {})
+            
+            # Format the event type for display
+            event_type_display = {
+                EventType.REMOVE_ABSENCE_INDICATOR: "Abwesenheitsende"
+            }.get(event_type, event_type)
+            
+            # Try to format the execution date
+            try:
+                execution_date = datetime.datetime.fromisoformat(execution_date_str)
+                time_diff = execution_date - current_time
+                
+                if time_diff.total_seconds() < 0:
+                    time_status = "Überfällig"
+                else:
+                    days = time_diff.days
+                    hours = time_diff.seconds // 3600
+                    minutes = (time_diff.seconds % 3600) // 60
+                    
+                    if days > 0:
+                        time_status = f"In {days} Tagen, {hours} Stunden"
+                    elif hours > 0:
+                        time_status = f"In {hours} Stunden, {minutes} Minuten"
+                    else:
+                        time_status = f"In {minutes} Minuten"
+                
+                date_format = execution_date.strftime("%d.%m.%Y %H:%M")
+                execution_date_display = f"{date_format} ({time_status})"
+            except ValueError:
+                execution_date_display = execution_date_str
+            
+            # Format context for display
+            if event_type == EventType.REMOVE_ABSENCE_INDICATOR:
+                username = context.get("username", "Unbekannt")
+                channel_id = context.get("channel_id", "Unbekannt")
+                channel = bot.get_channel(int(channel_id)) if channel_id and channel_id != "Unbekannt" else None
+                channel_name = channel.name if channel else f"Kanal-ID: {channel_id}"
+                
+                context_display = f"Nutzer: {username}\nKanal: {channel_name}"
+            else:
+                context_display = str(context)
+            
+            embed.add_field(
+                name=f"{i+1}. {event_type_display} (ID: {event_id[:8]}...)",
+                value=f"Ausführung: {execution_date_display}\n{context_display}",
+                inline=False
+            )
+            
+            # Limit to 25 events per embed
+            if i >= 24:
+                embed.add_field(
+                    name="Mehr Events",
+                    value=f"Es sind {len(events) - 25} weitere Events geplant.",
+                    inline=False
+                )
+                break
+                
+        except Exception as e:
+            embed.add_field(
+                name=f"Fehler bei Event {i+1}",
+                value=f"Fehler beim Verarbeiten: {str(e)}",
+                inline=False
+            )
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@tree.command(name="remove_event", description="Entfernt ein geplantes Bot Event")
+@app_commands.checks.has_permissions(administrator=True)
+async def remove_event_command(interaction: discord.Interaction, event_id: str):
+    """Remove a scheduled event by ID (admin only)"""
+    await interaction.response.defer(ephemeral=True)
+    
+    events_data = await events_manager.load() or {"events": []}
+    events = events_data["events"]
+    
+    # Find the event
+    event = next((e for e in events if e.get("id") == event_id), None)
+    
+    if not event:
+        await interaction.followup.send(f"Event mit ID {event_id} nicht gefunden.", ephemeral=True)
+        return
+    
+    # Remove the event
+    await remove_event(event_id)
+    
+    await interaction.followup.send(f"Event vom Typ {event.get('type')} mit ID {event_id} wurde entfernt.", ephemeral=True)
+
+@remove_event_command.autocomplete('event_id')
+async def event_id_autocomplete(interaction: discord.Interaction, current: str):
+    """Autocomplete for event IDs"""
+    events_data = await events_manager.load() or {"events": []}
+    events = events_data["events"]
+    
+    choices = []
+    for event in events:
+        event_id = event.get("id", "")
+        event_type = event.get("type", "unknown")
+        
+        # Try to get a more user-friendly description
+        description = ""
+        if event_type == EventType.REMOVE_ABSENCE_INDICATOR:
+            username = event.get("context", {}).get("username", "")
+            if username:
+                description = f"Abwesenheitsende für {username}"
+            else:
+                description = "Abwesenheitsende"
+        else:
+            description = event_type
+        
+        # Format choice name with ID and description
+        choice_name = f"{event_id[:8]}... - {description}"
+        
+        # Only include if it matches the current input
+        if not current or current.lower() in event_id.lower() or current.lower() in description.lower():
+            choices.append(app_commands.Choice(name=choice_name, value=event_id))
+    
+    # Return up to 25 choices
+    return choices[:25]
+
+@tree.command(name="manually_process_events", description="Führt die Ereignisverarbeitung manuell aus")
+@app_commands.checks.has_permissions(administrator=True)
+async def manually_process_events(interaction: discord.Interaction):
+    """Manually trigger the event processing loop (admin only)"""
+    await interaction.response.defer(ephemeral=True)
+    
+    # Process events
+    await process_scheduled_events()
+    
+    # Get updated events count
+    events_data = await events_manager.load() or {"events": []}
+    remaining_events = len(events_data["events"])
+    
+    await interaction.followup.send(
+        f"Ereignisverarbeitung wurde manuell ausgeführt. Es sind noch {remaining_events} Ereignisse übrig.",
+        ephemeral=True
+    )
 
 bot.run(DISCORD_TOKEN)

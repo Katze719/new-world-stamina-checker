@@ -8,7 +8,6 @@ import asyncio
 import datetime
 import locale
 
-
 # Setze die Locale auf Deutsch
 locale.setlocale(locale.LC_TIME, "de_DE.UTF-8")
 
@@ -114,6 +113,7 @@ class UrlaubsModal(discord.ui.Modal, title="Abwesenheit eintragen"):
         self.P_client = client
         self.P_parse_display_name = parse_display_name
         self.P_spread_settings = spread_settings
+        self.add_absence_end_event = None  # This will be set by the bot to provide the event scheduler function
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
@@ -122,8 +122,35 @@ class UrlaubsModal(discord.ui.Modal, title="Abwesenheit eintragen"):
             if start_date > end_date:
                 await interaction.response.send_message("Das Startdatum darf nicht nach dem Enddatum liegen!", ephemeral=True)
                 return
+            
             await interaction.response.send_message(f"Abwesenehit eingetragen von {start_date} bis {end_date}! Dieser Channel wurde automatisch mit einem 🔴 markiert.")
             await _abwesenheit(self.P_client, interaction, self.P_parse_display_name, self.P_spread_settings, f"{start_date} - {end_date} {self.grund.value}")
-            await interaction.channel.edit(name=f"{interaction.channel.name} 🔴")
+            
+            # Add red circle to channel name
+            await interaction.channel.edit(name=f"{interaction.channel.name}-🔴")
+            
+            # Schedule an event to remove the red circle at the end of the absence period
+            if self.add_absence_end_event:
+                # Convert end_date to datetime with time set to end of day (23:59:59)
+                end_datetime = datetime.datetime.combine(
+                    end_date, 
+                    datetime.time(23, 59, 59),
+                    tzinfo=datetime.timezone.utc
+                )
+                
+                # Add one day to make sure we're past the absence period
+                end_datetime = end_datetime + datetime.timedelta(days=1)
+                
+                # Schedule the event
+                event_id = await self.add_absence_end_event(
+                    user_id=str(interaction.user.id),
+                    username=interaction.user.display_name,
+                    channel_id=str(interaction.channel.id),
+                    end_date=end_datetime
+                )
+                
+                # Log event creation
+                print(f"Created event to remove absence indicator for {interaction.user.display_name} " 
+                     f"in channel {interaction.channel.name} on {end_datetime.isoformat()} (Event ID: {event_id})")
         except ValueError:
-            await interaction.response.send_message("Bitte gib die Daten im Format YYYY-MM-DD ein.", ephemeral=True)
+            await interaction.response.send_message("Bitte gib die Daten im Format YYYY-MM-DD ein.", ephemeral=True) 
