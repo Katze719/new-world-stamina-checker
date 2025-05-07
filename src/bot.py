@@ -1926,8 +1926,8 @@ async def abwesenheit(interaction: discord.Interaction):
             return member.display_name
     
     # Add event management function to the modal for absence end handling
-    modal.add_absence_end_event = add_absence_end_event
     modal.fake_init(spreadsheet_acc, parse_name, spreadsheet_role_settings_manager)
+    modal.add_absence_end_event = add_absence_end_event
     await interaction.response.send_modal(modal)
 
 @tree.command(name="set_error_log_channel", description="Setze den Channel für Error Logs")
