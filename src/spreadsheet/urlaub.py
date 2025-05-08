@@ -137,10 +137,7 @@ class UrlaubsModal(discord.ui.Modal, title="Abwesenheit eintragen"):
                     datetime.time(23, 59, 59),
                     tzinfo=datetime.timezone.utc
                 )
-                
-                # Add one day to make sure we're past the absence period
-                end_datetime = end_datetime + datetime.timedelta(days=1)
-                
+                                
                 # Schedule the event
                 event_id = await self.add_absence_end_event(
                     user_id=str(interaction.user.id),
