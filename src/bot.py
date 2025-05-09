@@ -3685,4 +3685,535 @@ async def manually_process_events(interaction: discord.Interaction):
         ephemeral=True
     )
 
+@tree.command(name="help", description="Zeigt detaillierte Hilfe zu allen verfügbaren Befehlen")
+async def help_command(interaction: discord.Interaction, category: Optional[str] = None):
+    """Show detailed help for all commands"""
+    
+    # Define all command categories
+    categories = {
+        "admin": {
+            "name": "🛠️ Administration",
+            "description": "Befehle für Server-Administratoren",
+            "commands": [
+                {
+                    "name": "/migrate_all_users",
+                    "description": "Migriert alle Nutzernamen vom alten Format zum neuen Format mit Level.",
+                    "example": "/migrate_all_users",
+                    "admin_only": True
+                },
+                {
+                    "name": "/set_role",
+                    "description": "Setzt Icon und/oder Priorität für eine bestimmte Rolle.",
+                    "example": "/set_role role:@Krieger icon:⚔️ prio:10",
+                    "admin_only": True
+                },
+                {
+                    "name": "/clear_role",
+                    "description": "Entfernt das Icon für eine bestimmte Rolle.",
+                    "example": "/clear_role role:@Bogenschütze",
+                    "admin_only": True
+                },
+                {
+                    "name": "/set_pattern",
+                    "description": "Setzt das globale Namensmuster für alle Mitglieder.",
+                    "example": "/set_pattern pattern:{name} ({level}) [{icons}]",
+                    "admin_only": True
+                },
+                {
+                    "name": "/update_all_users",
+                    "description": "Aktualisiert Icons und Namensmuster bei allen Nutzern.",
+                    "example": "/update_all_users",
+                    "admin_only": True
+                },
+                {
+                    "name": "/list_roles",
+                    "description": "Zeigt alle Rollen mit ihren Icons und Prioritäten an.",
+                    "example": "/list_roles",
+                    "admin_only": True
+                },
+                {
+                    "name": "/set_company_role",
+                    "description": "Setzt die Company-Rolle für das Spreadsheet.",
+                    "example": "/set_company_role role:@Kompanie str_in_spreadsheet:Kompanie1",
+                    "admin_only": True
+                },
+                {
+                    "name": "/remove_company_role",
+                    "description": "Entfernt eine Company-Rolle.",
+                    "example": "/remove_company_role role:@Kompanie",
+                    "admin_only": True
+                },
+                {
+                    "name": "/list_company_roles",
+                    "description": "Listet alle konfigurierten Company-Rollen auf.",
+                    "example": "/list_company_roles",
+                    "admin_only": True
+                },
+                {
+                    "name": "/set_class_role",
+                    "description": "Setzt die Klassen-Rolle für das Spreadsheet.",
+                    "example": "/set_class_role role:@Heiler str_in_spreadsheet:Heiler",
+                    "admin_only": True
+                },
+                {
+                    "name": "/remove_class_role",
+                    "description": "Entfernt eine Klassen-Rolle.",
+                    "example": "/remove_class_role role:@Tank",
+                    "admin_only": True
+                },
+                {
+                    "name": "/list_class_roles",
+                    "description": "Listet alle konfigurierten Klassen-Rollen auf.",
+                    "example": "/list_class_roles",
+                    "admin_only": True
+                },
+                {
+                    "name": "/set_document",
+                    "description": "Setzt die Spreadsheet-Dokument-ID.",
+                    "example": "/set_document document_id:1a2b3c4d5e...",
+                    "admin_only": True
+                },
+                {
+                    "name": "/sort_spreadsheet",
+                    "description": "Sortiert das Mitglieder-Spreadsheet.",
+                    "example": "/sort_spreadsheet",
+                    "admin_only": True
+                },
+                {
+                    "name": "/set_icon_post_channel",
+                    "description": "Setzt den Kanal für Icon-Übersichten.",
+                    "example": "/set_icon_post_channel channel:#icon-info",
+                    "admin_only": True
+                },
+                {
+                    "name": "/set_error_log_channel",
+                    "description": "Setzt den Kanal für Fehler-Logs.",
+                    "example": "/set_error_log_channel channel:#bot-logs",
+                    "admin_only": True
+                },
+                {
+                    "name": "/reset_levels",
+                    "description": "Setzt alle Level zurück (nicht rückgängig machbar!).",
+                    "example": "/reset_levels confirm:True",
+                    "admin_only": True
+                },
+                {
+                    "name": "/add_xp",
+                    "description": "Fügt einem Nutzer XP hinzu.",
+                    "example": "/add_xp user:@Nutzername amount:500",
+                    "admin_only": True
+                },
+                {
+                    "name": "/set_level",
+                    "description": "Setzt das Level eines Nutzers direkt.",
+                    "example": "/set_level user:@Nutzername level:25",
+                    "admin_only": True
+                },
+                {
+                    "name": "/level_stats",
+                    "description": "Zeigt Statistiken zum Level-System.",
+                    "example": "/level_stats",
+                    "admin_only": True
+                },
+                {
+                    "name": "/set_streak",
+                    "description": "Setzt die Streak eines Nutzers.",
+                    "example": "/set_streak user:@Nutzername streak_days:7",
+                    "admin_only": True
+                },
+                {
+                    "name": "/server_activity",
+                    "description": "Zeigt die Server-Aktivität als Grafik an.",
+                    "example": "/server_activity days:30",
+                    "admin_only": True
+                },
+                {
+                    "name": "/list_events",
+                    "description": "Zeigt alle geplanten Events an.",
+                    "example": "/list_events",
+                    "admin_only": True
+                },
+                {
+                    "name": "/remove_event",
+                    "description": "Entfernt ein geplantes Event.",
+                    "example": "/remove_event event_id:1234567890",
+                    "admin_only": True
+                },
+                {
+                    "name": "/manually_process_events",
+                    "description": "Führt die Event-Verarbeitung manuell aus.",
+                    "example": "/manually_process_events",
+                    "admin_only": True
+                }
+            ]
+        },
+        "vod": {
+            "name": "🎮 VOD & Stamina-Analyse",
+            "description": "Befehle zur Analyse von Videos und zur VOD-Verwaltung",
+            "commands": [
+                {
+                    "name": "/stamina_check",
+                    "description": "Analysiert ein YouTube-Video auf Stamina-Null-Zustände.",
+                    "example": "/stamina_check youtube_url:https://youtube.com/watch?v=abcdef debug_mode:False",
+                    "admin_only": False
+                },
+                {
+                    "name": "/get_queue_length",
+                    "description": "Zeigt die Länge der Warteschlange für VOD-Analysen an.",
+                    "example": "/get_queue_length",
+                    "admin_only": False
+                },
+                {
+                    "name": "/add_this_channel",
+                    "description": "Fügt den aktuellen Kanal zur VOD-Prüfliste hinzu.",
+                    "example": "/add_this_channel hidden:False",
+                    "admin_only": False
+                },
+                {
+                    "name": "/remove_this_channel",
+                    "description": "Entfernt den aktuellen Kanal von der VOD-Prüfliste.",
+                    "example": "/remove_this_channel",
+                    "admin_only": False
+                }
+            ]
+        },
+        "channel": {
+            "name": "📢 Kanal-Verwaltung",
+            "description": "Befehle zur Verwaltung von Kanälen",
+            "commands": [
+                {
+                    "name": "/watch_this_for_user_extraction",
+                    "description": "Legt fest, dass in diesem Kanal automatisch User aus Bildern extrahiert werden sollen.",
+                    "example": "/watch_this_for_user_extraction",
+                    "admin_only": True
+                },
+                {
+                    "name": "/remove_this_from_user_extraction",
+                    "description": "Entfernt diesen Kanal von der User-Extraktionsliste.",
+                    "example": "/remove_this_from_user_extraction",
+                    "admin_only": True
+                },
+                {
+                    "name": "/set_check_channel",
+                    "description": "Stellt ein, dass ein Kanal regelmäßig auf Aktivität überprüft werden soll.",
+                    "example": "/set_check_channel role:@Werber",
+                    "admin_only": True
+                },
+                {
+                    "name": "/remove_check_channel",
+                    "description": "Entfernt den Kanal von der Aktivitätsprüfung.",
+                    "example": "/remove_check_channel",
+                    "admin_only": True
+                },
+                {
+                    "name": "/set_channel_raidhelper_race",
+                    "description": "Setzt den Kanal für Raidhelper Races.",
+                    "example": "/set_channel_raidhelper_race channel:#rennen",
+                    "admin_only": True
+                },
+                {
+                    "name": "/set_channel_raidhelper_war",
+                    "description": "Setzt den Kanal für Raidhelper War.",
+                    "example": "/set_channel_raidhelper_war channel:#krieg",
+                    "admin_only": True
+                },
+                {
+                    "name": "/remove_channel_raidhelper_race",
+                    "description": "Entfernt den Kanal für Raidhelper Races.",
+                    "example": "/remove_channel_raidhelper_race",
+                    "admin_only": True
+                },
+                {
+                    "name": "/remove_channel_raidhelper_war",
+                    "description": "Entfernt den Kanal für Raidhelper War.",
+                    "example": "/remove_channel_raidhelper_war",
+                    "admin_only": True
+                }
+            ]
+        },
+        "level": {
+            "name": "⭐ Level-System",
+            "description": "Befehle für das Level-System",
+            "commands": [
+                {
+                    "name": "/level",
+                    "description": "Zeigt dein aktuelles Level und XP an.",
+                    "example": "/level user:@Nutzername",
+                    "admin_only": False
+                },
+                {
+                    "name": "/leaderboard",
+                    "description": "Zeigt die Top-Spieler nach XP an.",
+                    "example": "/leaderboard type:xp",
+                    "admin_only": False
+                },
+                {
+                    "name": "/leaderboard_all",
+                    "description": "Zeigt alle Nutzer nach XP sortiert an.",
+                    "example": "/leaderboard_all type:level",
+                    "admin_only": False
+                },
+                {
+                    "name": "/xp_history",
+                    "description": "Zeigt deine XP-Historie an.",
+                    "example": "/xp_history user:@Nutzername days:7",
+                    "admin_only": False
+                },
+                {
+                    "name": "/monthly_stats",
+                    "description": "Zeigt XP-Statistiken für einen bestimmten Monat.",
+                    "example": "/monthly_stats year:2023 month:6",
+                    "admin_only": False
+                },
+                {
+                    "name": "/xp_graph",
+                    "description": "Zeigt einen Graphen deiner XP-Entwicklung an.",
+                    "example": "/xp_graph user:@Nutzername days:30",
+                    "admin_only": False
+                }
+            ]
+        },
+        "streak": {
+            "name": "🔥 Streak-System",
+            "description": "Befehle zum Streak-System für kontinuierliche Aktivität",
+            "commands": [
+                {
+                    "name": "/streak",
+                    "description": "Zeigt deine aktuelle Aktivitäts-Streak an.",
+                    "example": "/streak user:@Nutzername",
+                    "admin_only": False
+                },
+                {
+                    "name": "/streak_leaders",
+                    "description": "Zeigt die Top-Spieler nach Aktivitäts-Streak an.",
+                    "example": "/streak_leaders",
+                    "admin_only": False
+                }
+            ]
+        },
+        "spreadsheet": {
+            "name": "📊 Spreadsheet & Organisation",
+            "description": "Befehle zur Verwaltung von Spreadsheet-Daten",
+            "commands": [
+                {
+                    "name": "/stats",
+                    "description": "Zeigt deine Stats aus dem Google Sheet an.",
+                    "example": "/stats",
+                    "admin_only": False
+                },
+                {
+                    "name": "/abwesenheit",
+                    "description": "Teilt mit, wann du abwesend bist.",
+                    "example": "/abwesenheit",
+                    "admin_only": False
+                }
+            ]
+        },
+        "misc": {
+            "name": "🔍 Sonstiges",
+            "description": "Verschiedene nützliche Befehle",
+            "commands": [
+                {
+                    "name": "/changelog",
+                    "description": "Zeigt den neuesten Changelog-Eintrag an.",
+                    "example": "/changelog",
+                    "admin_only": False
+                },
+                {
+                    "name": "/help",
+                    "description": "Zeigt diese Hilfe an.",
+                    "example": "/help category:level",
+                    "admin_only": False
+                }
+            ]
+        }
+    }
+    
+    # Create help menu
+    view = HelpView(categories, interaction.user)
+    
+    # If category is specified, show that category directly
+    if category and category in categories:
+        await view.show_category(interaction, category, 0)
+    else:
+        # Otherwise show main menu
+        await view.show_main_menu(interaction)
+
+# Button for navigating to a category
+class CategoryButton(discord.ui.Button):
+    def __init__(self, category_key, category_name):
+        super().__init__(
+            style=discord.ButtonStyle.primary,
+            label=category_name,
+            custom_id=f"help_category_{category_key}"
+        )
+        self.category_key = category_key
+        
+    async def callback(self, interaction: discord.Interaction):
+        view = self.view
+        await view.show_category(interaction, self.category_key, 0)
+
+# Button to return to main menu
+class MainMenuButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(
+            style=discord.ButtonStyle.secondary,
+            label="🏠 Hauptmenü",
+            custom_id="help_main_menu"
+        )
+        
+    async def callback(self, interaction: discord.Interaction):
+        view = self.view
+        await view.show_main_menu(interaction)
+
+# Button for pagination
+class PageButton(discord.ui.Button):
+    def __init__(self, label, page, disabled=False):
+        super().__init__(
+            style=discord.ButtonStyle.secondary,
+            label=label,
+            custom_id=f"help_page_{page}",
+            disabled=disabled
+        )
+        self.page = page
+        
+    async def callback(self, interaction: discord.Interaction):
+        view = self.view
+        await view.show_category(interaction, view.current_category, self.page)
+
+# Main help view with all navigation logic
+class HelpView(discord.ui.View):
+    def __init__(self, categories, user):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.categories = categories
+        self.user = user
+        self.current_category = None
+        self.current_page = 0
+        self.is_admin = user.guild_permissions.administrator
+        
+    async def show_main_menu(self, interaction):
+        """Show the main menu with all categories"""
+        # Clear previous buttons
+        self.clear_items()
+        self.current_category = None
+        
+        # Create embed for main menu
+        embed = discord.Embed(
+            title="❓ Bot-Hilfe - Kategorien",
+            description="Hier findest du alle Befehle des Bots nach Kategorien sortiert.\n" +
+                       "Klicke auf eine Kategorie um mehr Details zu sehen.",
+            color=discord.Color.blue()
+        )
+        
+        # Add all available categories to embed
+        for cat_key, cat_data in self.categories.items():
+            # Count commands user can access
+            cmd_count = len([cmd for cmd in cat_data["commands"] 
+                          if not cmd["admin_only"] or self.is_admin])
+            
+            if cmd_count > 0:
+                # Add field for this category
+                embed.add_field(
+                    name=cat_data["name"],
+                    value=f"{cat_data['description']}\n**{cmd_count} Befehle verfügbar**",
+                    inline=True
+                )
+                
+                # Add button for this category
+                self.add_item(CategoryButton(cat_key, cat_data["name"]))
+        
+        # Send or update message
+        if interaction.response.is_done():
+            await interaction.edit_original_response(embed=embed, view=self)
+        else:
+            await interaction.response.send_message(embed=embed, view=self, ephemeral=True)
+    
+    async def show_category(self, interaction, category_key, page=0):
+        """Show commands for a specific category with pagination"""
+        # Validate category
+        if category_key not in self.categories:
+            await self.show_main_menu(interaction)
+            return
+            
+        # Update current state
+        self.current_category = category_key
+        self.current_page = page
+        category = self.categories[category_key]
+        
+        # Filter commands based on admin status
+        commands = [cmd for cmd in category["commands"] 
+                   if not cmd["admin_only"] or self.is_admin]
+        
+        # Pagination setup
+        commands_per_page = 5  # 5 commands per page
+        total_pages = max(1, (len(commands) - 1) // commands_per_page + 1)
+        start_idx = page * commands_per_page
+        end_idx = min(start_idx + commands_per_page, len(commands))
+        page_commands = commands[start_idx:end_idx]
+        
+        # Create embed
+        embed = discord.Embed(
+            title=f"{category['name']} - Befehle",
+            description=f"{category['description']}\n" +
+                       (f"Seite {page+1} von {total_pages}" if total_pages > 1 else ""),
+            color=discord.Color.blue()
+        )
+        
+        # Add commands to embed
+        for cmd in page_commands:
+            embed.add_field(
+                name=cmd["name"],
+                value=f"**Beschreibung:** {cmd['description']}\n**Beispiel:** `{cmd['example']}`" + 
+                      (f"\n**Admin:** Nur für Administratoren" if cmd["admin_only"] else ""),
+                inline=False
+            )
+        
+        # Clear previous buttons
+        self.clear_items()
+        
+        # Add main menu button
+        self.add_item(MainMenuButton())
+        
+        # Add pagination buttons if needed
+        if total_pages > 1:
+            # Previous page button
+            self.add_item(PageButton("⬅️ Vorherige", page - 1, disabled=(page <= 0)))
+            
+            # Next page button
+            self.add_item(PageButton("➡️ Nächste", page + 1, disabled=(page >= total_pages - 1)))
+        
+        # Send or update message
+        if interaction.response.is_done():
+            await interaction.edit_original_response(embed=embed, view=self)
+        else:
+            await interaction.response.send_message(embed=embed, view=self, ephemeral=True)
+    
+    async def on_timeout(self):
+        """Handle view timeout by disabling all buttons"""
+        for item in self.children:
+            item.disabled = True
+
+# Add autocomplete for help categories
+@help_command.autocomplete('category')
+async def help_category_autocomplete(interaction: discord.Interaction, current: str):
+    categories = {
+        "admin": "🛠️ Administration",
+        "vod": "🎮 VOD & Stamina-Analyse",
+        "channel": "📢 Kanal-Verwaltung",
+        "level": "⭐ Level-System",
+        "streak": "🔥 Streak-System",
+        "spreadsheet": "📊 Spreadsheet & Organisation",
+        "misc": "🔍 Sonstiges"
+    }
+    
+    # Filter by current input
+    filtered = [(key, val) for key, val in categories.items() 
+                if not current or current.lower() in key.lower() or current.lower() in val.lower()]
+    
+    # Convert to choices
+    return [
+        app_commands.Choice(name=f"{val} ({key})", value=key)
+        for key, val in filtered
+    ]
+
 bot.run(DISCORD_TOKEN)
