@@ -148,10 +148,10 @@ async def process_remove_absence_indicator(event):
         log.error(f"Channel not found for ID: {channel_id}")
         return False
     
-    # Remove red circle (-🔴) from the channel name if present
-    if '-🔴' in channel.name:
+    # Remove red circle (-🔴) or (🔴-) from the channel name if present
+    if '🔴' in channel.name:
         try:
-            new_name = channel.name.replace('-🔴', '').strip()
+            new_name = channel.name.replace('-🔴', '').replace('🔴-', '').strip()
             await channel.edit(name=new_name)
             log.info(f"Removed absence indicator from channel {channel.name} for user {username}")
             
@@ -4275,7 +4275,7 @@ async def abwesenheit_hilfe(interaction: discord.Interaction):
         name="⚠️ Wichtige Hinweise",
         value=(
             "• Deine Abwesenheit wird im Mitglieder-Spreadsheet dokumentiert\n"
-            "• Dein Kanal erhält eine rote Markierung (-🔴) bis zum Ende der Abwesenheit\n"
+            "• Dein Kanal erhält eine rote Markierung (🔴) bis zum Ende der Abwesenheit\n"
             "• Nach Ablauf der Abwesenheit wird die Markierung automatisch entfernt\n"
             "• Bitte melde dich rechtzeitig ab, spätestens 2-3 Tage vor Beginn\n"
             "• Die Abmeldung ist wichtig für die Planung von Events und Kriegen"

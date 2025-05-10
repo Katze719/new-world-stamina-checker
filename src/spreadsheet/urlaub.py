@@ -127,7 +127,7 @@ class UrlaubsModal(discord.ui.Modal, title="Abwesenheit eintragen"):
             await _abwesenheit(self.P_client, interaction, self.P_parse_display_name, self.P_spread_settings, f"{start_date} - {end_date} {self.grund.value}")
             
             # Add red circle to channel name
-            await interaction.channel.edit(name=f"{interaction.channel.name}-🔴")
+            await interaction.channel.edit(name=f"🔴-{interaction.channel.name}")
             
             # Schedule an event to remove the red circle at the end of the absence period
             if self.add_absence_end_event:
