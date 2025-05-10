@@ -4231,9 +4231,9 @@ async def abwesenheit_hilfe(interaction: discord.Interaction):
         value=(
             "1. Gib den Befehl `/abwesenheit` ein\n"
             "2. Fülle im erscheinenden Formular folgende Felder aus:\n"
-            "   • **Von:** Startdatum deiner Abwesenheit (Format: TT.MM.JJJJ)\n"
-            "   • **Bis:** Enddatum deiner Abwesenheit (Format: TT.MM.JJJJ)\n"
-            "   • **Grund:** Kurze Begründung für deine Abwesenheit\n"
+            "   • **Startdatum:** Startdatum deiner Abwesenheit (Format: JJJJ-MM-TT)\n"
+            "   • **Enddatum:** Enddatum deiner Abwesenheit (Format: JJJJ-MM-TT)\n"
+            "   • **Grund (Optional):** Kurze Begründung für deine Abwesenheit\n"
             "3. Klicke auf 'Absenden'"
         ),
         inline=False
@@ -4276,9 +4276,9 @@ async def abwesenheit_hilfe(interaction: discord.Interaction):
     embed.add_field(
         name="📝 Beispiel",
         value=(
-            "**Von:** 01.06.2024\n"
-            "**Bis:** 15.06.2024\n"
-            "**Grund:** Urlaub in Italien"
+            "**Startdatum:** 2024-06-01\n"
+            "**Enddatum:** 2024-06-15\n"
+            "**Grund (Optional):** Urlaub in Italien"
         ),
         inline=False
     )
