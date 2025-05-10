@@ -4244,85 +4244,24 @@ async def abwesenheit_hilfe(interaction: discord.Interaction):
     command_mention = get_command_mention(tree, "abwesenheit")
     
     embed = discord.Embed(
-        title="📅 Abwesenheits-System: Anleitung",
-        description=f"**Wie melde ich mich richtig ab?**\nUnten findest du detaillierte Informationen zum Abwesenheits-System.",
+        title="📅 Abwesenheit eintragen",
+        description=f"**Wie melde ich mich ab?**\n# Klick hier: {command_mention} und drücke *Enter*!",
         color=discord.Color.blue()
     )
     
-    # Schnellstartfeld
+    # Hauptanleitung extrem kompakt
     embed.add_field(
-        name="⚡ Schnellstart",
-        value=f"Klicke auf {command_mention} und drücke dann **Enter**. Fülle anschließend das Formular aus.",
-        inline=False
-    )
-    
-    # Hauptanleitung
-    embed.add_field(
-        name="✅ Schritt-für-Schritt Anleitung",
+        name="📝 Formular-Infos",
         value=(
-            f"1. Gib den Befehl {command_mention} ein\n"
-            "2. Fülle im erscheinenden Formular folgende Felder aus:\n"
-            "   • **Startdatum:** Startdatum deiner Abwesenheit (Format: JJJJ-MM-TT)\n"
-            "   • **Enddatum:** Enddatum deiner Abwesenheit (Format: JJJJ-MM-TT)\n"
-            "   • **Grund (Optional):** Kurze Begründung für deine Abwesenheit\n"
-            "3. Klicke auf 'Absenden'"
+            "**Startdatum:** JJJJ-MM-TT\n"
+            "**Enddatum:** JJJJ-MM-TT\n"
+            "**Grund:** Optional"
         ),
         inline=False
     )
     
-    # Wichtige Hinweise
-    embed.add_field(
-        name="⚠️ Wichtige Hinweise",
-        value=(
-            "• Deine Abwesenheit wird im Mitglieder-Spreadsheet dokumentiert\n"
-            "• Dein Kanal erhält eine rote Markierung (🔴) bis zum Ende der Abwesenheit\n"
-            "• Nach Ablauf der Abwesenheit wird die Markierung automatisch entfernt\n"
-            "• Bitte melde dich rechtzeitig ab, spätestens 2-3 Tage vor Beginn\n"
-            "• Die Abmeldung ist wichtig für die Planung von Events und Kriegen"
-        ),
-        inline=False
-    )
-    
-    # Vorzeitige Rückkehr
-    embed.add_field(
-        name="🔄 Vorzeitige Rückkehr",
-        value=(
-            "Falls du früher als geplant zurückkehrst, informiere uns bitte in deinem Ticket, "
-            "damit dein Status aktualisiert werden kann."
-        ),
-        inline=False
-    )
-
-    # Einfluss auf das Level-System
-    embed.add_field(
-        name="📊 Einfluss auf Streaks und Level",
-        value=(
-            "Beachte, dass eine Abwesenheit deine tägliche Aktivitäts-Streak unterbrechen kann. "
-            "Dies ist jedoch besser als unangekündigtes Fehlen."
-        ),
-        inline=False
-    )
-    
-    # Beispiel
-    embed.add_field(
-        name="📝 Beispiel",
-        value=(
-            "**Startdatum:** 2024-06-01\n"
-            "**Enddatum:** 2024-06-15\n"
-            "**Grund (Optional):** Urlaub in Italien"
-        ),
-        inline=False
-    )
-    
-    # Nochmalige Betonung der schnellen Möglichkeit
-    embed.add_field(
-        name="🚀 Los geht's!",
-        value=f"Bereit dich abzumelden? Klicke hier: {command_mention} und drücke **Enter**!",
-        inline=False
-    )
-    
-    # Footer-Information
-    embed.set_footer(text="Bei Fragen wende dich bitte an einen Konsul.")
+    # Footer mit minimalen restlichen Infos
+    embed.set_footer(text="Dein Kanal erhält eine 🔴-Markierung • Bei Fragen wende dich an einen Konsul")
     
     await interaction.response.send_message(embed=embed)
 
