@@ -3693,7 +3693,7 @@ async def manually_process_events(interaction: discord.Interaction):
         ephemeral=True
     )
 
-@tree.command(name="help", description="Zeigt detaillierte Hilfe zu allen verfügbaren Befehlen")
+@tree.command(name="hilfe", description="Zeigt detaillierte Hilfe zu allen verfügbaren Befehlen")
 async def help_command(interaction: discord.Interaction, category: Optional[str] = None):
     """Show detailed help for all commands"""
     
