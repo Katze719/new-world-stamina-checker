@@ -4216,4 +4216,76 @@ async def help_category_autocomplete(interaction: discord.Interaction, current: 
         for key, val in filtered
     ]
 
+@tree.command(name="abwesenheit_hilfe", description="Zeigt eine detaillierte Anleitung zur Verwendung des Abwesenheits-Systems")
+async def abwesenheit_hilfe(interaction: discord.Interaction):
+    """Zeigt eine ausführliche Anleitung, wie man den /abwesenheit Befehl verwendet."""
+    embed = discord.Embed(
+        title="📅 Abwesenheits-System: Anleitung",
+        description="So meldest du dich richtig ab, wenn du für eine Zeit nicht verfügbar bist.",
+        color=discord.Color.blue()
+    )
+    
+    # Hauptanleitung
+    embed.add_field(
+        name="✅ Wie meldet man sich ab?",
+        value=(
+            "1. Gib den Befehl `/abwesenheit` ein\n"
+            "2. Fülle im erscheinenden Formular folgende Felder aus:\n"
+            "   • **Von:** Startdatum deiner Abwesenheit (Format: TT.MM.JJJJ)\n"
+            "   • **Bis:** Enddatum deiner Abwesenheit (Format: TT.MM.JJJJ)\n"
+            "   • **Grund:** Kurze Begründung für deine Abwesenheit\n"
+            "3. Klicke auf 'Absenden'"
+        ),
+        inline=False
+    )
+    
+    # Wichtige Hinweise
+    embed.add_field(
+        name="⚠️ Wichtige Hinweise",
+        value=(
+            "• Deine Abwesenheit wird im Mitglieder-Spreadsheet dokumentiert\n"
+            "• Dein Kanal erhält eine rote Markierung (-🔴) bis zum Ende der Abwesenheit\n"
+            "• Nach Ablauf der Abwesenheit wird die Markierung automatisch entfernt\n"
+            "• Bitte melde dich rechtzeitig ab, spätestens 2-3 Tage vor Beginn\n"
+            "• Die Abmeldung ist wichtig für die Planung von Events und Kriegen"
+        ),
+        inline=False
+    )
+    
+    # Vorzeitige Rückkehr
+    embed.add_field(
+        name="🔄 Vorzeitige Rückkehr",
+        value=(
+            "Falls du früher als geplant zurückkehrst, informiere uns bitte in deinem Ticket, "
+            "damit dein Status aktualisiert werden kann."
+        ),
+        inline=False
+    )
+
+    # Einfluss auf das Level-System
+    embed.add_field(
+        name="📊 Einfluss auf Streaks und Level",
+        value=(
+            "Beachte, dass eine Abwesenheit deine tägliche Aktivitäts-Streak unterbrechen kann. "
+            "Dies ist jedoch besser als unangekündigtes Fehlen."
+        ),
+        inline=False
+    )
+    
+    # Beispiel
+    embed.add_field(
+        name="📝 Beispiel",
+        value=(
+            "**Von:** 01.06.2024\n"
+            "**Bis:** 15.06.2024\n"
+            "**Grund:** Urlaub in Italien"
+        ),
+        inline=False
+    )
+    
+    # Footer-Information
+    embed.set_footer(text="Bei Fragen wende dich bitte an einen Konsul oder Pfeffermuehle.")
+    
+    await interaction.response.send_message(embed=embed)
+
 bot.run(DISCORD_TOKEN)
