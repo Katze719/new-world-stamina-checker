@@ -599,6 +599,8 @@ Die Person war {stamina_events} Mal out of stamina im letzten Krieg. Gib nur ein
 """
     return (await client.aio.models.generate_content(model="gemini-2.0-flash", contents=c)).text
 
+# Dictionary zum Speichern der Befehls-IDs nach der Synchronisation
+command_ids = {}
 
 @bot.event
 async def on_ready():
@@ -626,6 +628,12 @@ async def on_ready():
     try:
         synced = await tree.sync()
         log.info(f"{len(synced)} Slash Commands synchronisiert.")
+        
+        # Speichere Befehls-IDs für Command Mentions
+        global command_ids
+        command_ids.clear()
+        for cmd in synced:
+            command_ids[cmd.name] = cmd.id
     except Exception as e:
         log.info(e)
 
@@ -4216,20 +4224,43 @@ async def help_category_autocomplete(interaction: discord.Interaction, current: 
         for key, val in filtered
     ]
 
+# Hilfsfunktion für Command Mentions
+def get_command_mention(tree, command_name):
+    """Gibt einen klickbaren Befehlsverweis zurück, falls verfügbar."""
+    global command_ids
+    
+    # Prüfe, ob die ID im Dictionary vorhanden ist
+    if command_name in command_ids:
+        return f"</{command_name}:{command_ids[command_name]}>"
+    
+    # Fallback-Formatierung, wenn keine ID verfügbar ist
+    return f"**`/{command_name}`**"
+
 @tree.command(name="abwesenheit_hilfe", description="Zeigt eine detaillierte Anleitung zur Verwendung des Abwesenheits-Systems")
 async def abwesenheit_hilfe(interaction: discord.Interaction):
     """Zeigt eine ausführliche Anleitung, wie man den /abwesenheit Befehl verwendet."""
+    
+    # Befehlsverweis generieren
+    command_mention = get_command_mention(tree, "abwesenheit")
+    
     embed = discord.Embed(
         title="📅 Abwesenheits-System: Anleitung",
-        description="So meldest du dich richtig ab, wenn du für eine Zeit nicht verfügbar bist.",
+        description=f"**Wie melde ich mich richtig ab?**\nUnten findest du detaillierte Informationen zum Abwesenheits-System.",
         color=discord.Color.blue()
+    )
+    
+    # Schnellstartfeld
+    embed.add_field(
+        name="⚡ Schnellstart",
+        value=f"Klicke auf {command_mention} und drücke dann **Enter**. Fülle anschließend das Formular aus.",
+        inline=False
     )
     
     # Hauptanleitung
     embed.add_field(
-        name="✅ Wie meldet man sich ab?",
+        name="✅ Schritt-für-Schritt Anleitung",
         value=(
-            "1. Gib den Befehl `/abwesenheit` ein\n"
+            f"1. Gib den Befehl {command_mention} ein\n"
             "2. Fülle im erscheinenden Formular folgende Felder aus:\n"
             "   • **Startdatum:** Startdatum deiner Abwesenheit (Format: JJJJ-MM-TT)\n"
             "   • **Enddatum:** Enddatum deiner Abwesenheit (Format: JJJJ-MM-TT)\n"
@@ -4280,6 +4311,13 @@ async def abwesenheit_hilfe(interaction: discord.Interaction):
             "**Enddatum:** 2024-06-15\n"
             "**Grund (Optional):** Urlaub in Italien"
         ),
+        inline=False
+    )
+    
+    # Nochmalige Betonung der schnellen Möglichkeit
+    embed.add_field(
+        name="🚀 Los geht's!",
+        value=f"Bereit dich abzumelden? Klicke hier: {command_mention} und drücke **Enter**!",
         inline=False
     )
     
