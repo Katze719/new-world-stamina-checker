@@ -4284,7 +4284,7 @@ async def abwesenheit_hilfe(interaction: discord.Interaction):
     )
     
     # Footer-Information
-    embed.set_footer(text="Bei Fragen wende dich bitte an einen Konsul oder Pfeffermuehle.")
+    embed.set_footer(text="Bei Fragen wende dich bitte an einen Konsul.")
     
     await interaction.response.send_message(embed=embed)
 
