@@ -66,6 +66,10 @@ class VideoAnalyzer:
         low_yellow_frame_count = 0
         high_yellow_found = False
         
+        # Track stamina levels throughout the video
+        stamina_data = []
+        hue_data = []
+        
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
@@ -75,17 +79,41 @@ class VideoAnalyzer:
                 await on_progress(frame_number, self.frame_count)
 
             frame_number += 1
+            timestamp = frame_number / self.fps
+            
             x1, y1, x2, y2 = self._calculate_roi(frame)
             roi = frame[y1:y2, x1:x2]
             contours = await asyncio.to_thread(self._find_contours, roi)
+            
+            # Always measure current stamina in the fixed rectangle
+            stable_rect = frame[y_fixed:y_fixed + h_fixed, x_fixed:x_fixed + w_fixed]
+            yellow_ratio = self._calculate_yellow_ratio(stable_rect, w_fixed, h_fixed)
+            
+            # Store stamina level data (yellow ratio) and timestamp
+            stamina_data.append((timestamp, yellow_ratio))
+            
+            # Store hue distribution data
+            hsv = cv2.cvtColor(stable_rect, cv2.COLOR_BGR2HSV)
+            # Get only yellow pixels to analyze their hue
+            mask = cv2.inRange(hsv, self.lower_yellow, self.upper_yellow)
+            if np.count_nonzero(mask) > 0:
+                # Calculate average hue, saturation, value of yellow pixels
+                yellow_pixels = hsv[mask > 0]
+                if len(yellow_pixels) > 0:
+                    avg_hue = np.mean(yellow_pixels[:, 0])
+                    avg_saturation = np.mean(yellow_pixels[:, 1])
+                    avg_value = np.mean(yellow_pixels[:, 2])
+                    hue_data.append((timestamp, avg_hue, avg_saturation, avg_value))
+                else:
+                    hue_data.append((timestamp, 0, 0, 0))
+            else:
+                hue_data.append((timestamp, 0, 0, 0))
             
             for contour in contours:
                 x, y, w, h = self._validate_rectangle(contour, x1, y1)
                 if x is not None:
                     deviation = abs(x - x_fixed) + abs(y - y_fixed) + abs(w - w_fixed) + abs(h - h_fixed)
                     if deviation <= 60:
-                        stable_rect = frame[y_fixed:y_fixed + h_fixed, x_fixed:x_fixed + w_fixed]
-                        yellow_ratio = self._calculate_yellow_ratio(stable_rect, w_fixed, h_fixed)
                         if yellow_ratio > 0.08:
                             high_yellow_found = True
                         if yellow_ratio < 0.02 and high_yellow_found:
@@ -106,7 +134,7 @@ class VideoAnalyzer:
             
         cap.release()
         print(f"Anzahl der Frames mit weniger als 5% Gelb: {low_yellow_frame_count}")
-        return self.saved_timestamps
+        return self.saved_timestamps, stamina_data, hue_data
 
     def _calculate_roi(self, frame):
         h, w = frame.shape[:2]

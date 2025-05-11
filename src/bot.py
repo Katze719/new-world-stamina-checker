@@ -612,7 +612,7 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
 
             log.info("Starte Analyse")
             time_start_analyze = time.time()
-            timestamps = await video_analyzer.analyze_video(stable_rectangle, send_progress_update)
+            timestamps, stamina_data, hue_data = await video_analyzer.analyze_video(stable_rectangle, send_progress_update)
             time_end_analyze = time.time()
 
             message = await get_feedback_message(len(timestamps))
@@ -688,6 +688,109 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
                     # Senden
                     await send_image(histogram_path, "oos_histogram.png", 
                                     "Verteilung der Out-of-Stamina Ereignisse über die Zeit")
+            
+            # Create and send stamina level graph
+            if stamina_data:
+                plt.figure(figsize=(12, 6))
+                times = [t for t, _ in stamina_data]
+                levels = [level for _, level in stamina_data]
+                
+                # Convert times to minutes for better readability
+                times_minutes = [t/60 for t in times]
+                
+                # Reduce data points if there are too many
+                if len(times_minutes) > 1000:
+                    step = len(times_minutes) // 1000
+                    times_minutes = times_minutes[::step]
+                    levels = levels[::step]
+                
+                plt.plot(times_minutes, levels, 'g-', linewidth=1.5)
+                
+                # Add threshold lines
+                plt.axhline(y=0.02, color='r', linestyle='--', alpha=0.7, label='OOS Threshold (2%)')
+                plt.axhline(y=0.08, color='y', linestyle='--', alpha=0.7, label='High Stamina Threshold (8%)')
+                
+                # Mark OOS events
+                if seconds:
+                    oos_minutes = [s/60 for s in seconds]
+                    plt.scatter(oos_minutes, [0.01] * len(oos_minutes), color='red', s=50, marker='v', label='OOS Events')
+                
+                plt.title('Stamina Level über die Zeit')
+                plt.xlabel('Zeit (Minuten)')
+                plt.ylabel('Stamina Füllstand (Gelb-Anteil)')
+                plt.ylim(0, min(1.0, max(levels) * 1.2))  # Set y-axis limits
+                plt.grid(True, alpha=0.3)
+                plt.legend()
+                
+                # Speichern
+                stamina_graph_path = os.path.join(OUTPUT_FOLDER, "stamina_level.png")
+                plt.savefig(stamina_graph_path)
+                plt.close()
+                
+                # Senden
+                await send_image(stamina_graph_path, "stamina_level.png", 
+                                "Stamina-Füllstand über die Dauer des Videos")
+                
+            # Create and send hue graph if data is available
+            if hue_data and len(hue_data) > 10:
+                plt.figure(figsize=(12, 6))
+                
+                times = [t for t, _, _, _ in hue_data]
+                hues = [h for _, h, _, _ in hue_data]
+                saturations = [s for _, _, s, _ in hue_data]
+                values = [v for _, _, _, v in hue_data]
+                
+                # Convert times to minutes for better readability
+                times_minutes = [t/60 for t in times]
+                
+                # Reduce data points if there are too many
+                if len(times_minutes) > 1000:
+                    step = len(times_minutes) // 500
+                    times_minutes = times_minutes[::step]
+                    hues = hues[::step]
+                    saturations = saturations[::step]
+                    values = values[::step]
+                
+                # Create subplot for different color components
+                fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
+                
+                # Plot hue data
+                ax1.plot(times_minutes, hues, 'r-', linewidth=1.5)
+                ax1.set_title('Farbton (Hue) der Stamina-Leiste')
+                ax1.set_ylabel('Hue (0-180)')
+                ax1.grid(True, alpha=0.3)
+                
+                # Plot saturation data
+                ax2.plot(times_minutes, saturations, 'g-', linewidth=1.5)
+                ax2.set_title('Sättigung (Saturation) der Stamina-Leiste')
+                ax2.set_ylabel('Saturation (0-255)')
+                ax2.grid(True, alpha=0.3)
+                
+                # Plot value data
+                ax3.plot(times_minutes, values, 'b-', linewidth=1.5)
+                ax3.set_title('Helligkeit (Value) der Stamina-Leiste')
+                ax3.set_xlabel('Zeit (Minuten)')
+                ax3.set_ylabel('Value (0-255)')
+                ax3.grid(True, alpha=0.3)
+                
+                # Mark OOS events
+                if seconds:
+                    oos_minutes = [s/60 for s in seconds]
+                    for ax in [ax1, ax2, ax3]:
+                        ymin, ymax = ax.get_ylim()
+                        ypos = ymin + (ymax - ymin) * 0.05
+                        ax.scatter(oos_minutes, [ypos] * len(oos_minutes), color='red', s=30, marker='v')
+                
+                plt.tight_layout()
+                
+                # Speichern
+                hue_graph_path = os.path.join(OUTPUT_FOLDER, "stamina_color.png")
+                plt.savefig(hue_graph_path)
+                plt.close()
+                
+                # Senden
+                await send_image(hue_graph_path, "stamina_color.png", 
+                                "Farbveränderungen der Stamina-Leiste über die Zeit")
             
             # Zusätzliche Debug-Info, wenn Debug-Modus aktiviert
             if debug_mode:
