@@ -501,27 +501,27 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
             video_path = await download_video(youtube_url)
             time_end_download = time.time()
 
-            # Video-Informationen anzeigen wenn Debug-Modus
-            if debug_mode:
-                cap = cv2.VideoCapture(video_path)
-                frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                fps = cap.get(cv2.CAP_PROP_FPS)
-                duration = frame_count / fps if fps > 0 else 0
-                cap.release()
-                
-                embed.title = "🎬 Video-Informationen"
-                embed.description = (
+            # Video-Informationen anzeigen
+            cap = cv2.VideoCapture(video_path)
+            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            duration = frame_count / fps if fps > 0 else 0
+            cap.release()
+            
+            video_info_embed = discord.Embed(
+                title="🎬 Video-Informationen",
+                description=(
                     f"**Auflösung:** {frame_width}x{frame_height} Pixel\n"
                     f"**Framerate:** {fps:.2f} FPS\n"
                     f"**Frames:** {frame_count:,}\n"
                     f"**Dauer:** {duration/60:.1f} Minuten\n"
-                    f"**Download-Zeit:** {format_time(time_end_download - time_start_download)}\n\n"
-                    f"Starte jetzt Training..."
-                )
-                await edit_msg(interaction, msg.id, embed)
-                await asyncio.sleep(2)  # Kurze Pause, damit der Nutzer die Infos lesen kann
+                    f"**Download-Zeit:** {format_time(time_end_download - time_start_download)}"
+                ),
+                color=discord.Color.blue()
+            )
+            await interaction.channel.send(embed=video_info_embed)
             
             video_analyzer = VideoAnalyzer(video_path, debug=debug_mode)
             skip_first_frames = 100
