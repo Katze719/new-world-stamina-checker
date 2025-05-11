@@ -130,7 +130,111 @@ class VideoAnalyzer:
                                 cv2.rectangle(frame, (x_fixed, y_fixed), (x_fixed + w_fixed, y_fixed + h_fixed), (255, 0, 0), 2)
                                 cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
                                 cv2.rectangle(frame, (x1, y1), (x2, y2), (138, 43, 226), 2)
-                                cv2.imwrite(f"{self.output_dir}/{frame_number}.jpg", frame)
+                                
+                                # Add text with frame number and timestamp
+                                timestamp_seconds = frame_number / self.fps
+                                minutes = int(timestamp_seconds // 60)
+                                seconds = int(timestamp_seconds % 60)
+                                ms = int((timestamp_seconds % 1) * 1000)
+                                timestamp_text = f"Frame: {frame_number} | Time: {minutes:02}:{seconds:02}.{ms:03}"
+                                cv2.putText(frame, timestamp_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                                
+                                # Create visualization of stamina bar and its yellow detection
+                                # Create a fixed size bottom panel that's big enough for our visualizations
+                                bottom_panel_height = 150  # Fixed height for panel
+                                
+                                # Create a canvas with extra space at the bottom
+                                frame_with_panel = np.zeros((frame.shape[0] + bottom_panel_height, frame.shape[1], 3), dtype=np.uint8)
+                                frame_with_panel[:frame.shape[0], :] = frame  # Copy original frame
+                                # Fill the bottom panel with a dark gray background
+                                frame_with_panel[frame.shape[0]:, :] = [30, 30, 30]  # Dark gray background
+                                
+                                # Draw labels
+                                cv2.putText(frame_with_panel, "Original Stamina Bar:", 
+                                          (10, frame.shape[0] + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+                                cv2.putText(frame_with_panel, "Yellow Detection Mask:", 
+                                          (frame.shape[1]//2 + 10, frame.shape[0] + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+                                
+                                try:
+                                    # Ensure coordinates are within frame boundaries
+                                    y_fixed_safe = max(0, min(y_fixed, frame.shape[0]-1))
+                                    x_fixed_safe = max(0, min(x_fixed, frame.shape[1]-1))
+                                    height_safe = min(h_fixed, frame.shape[0] - y_fixed_safe)
+                                    width_safe = min(w_fixed, frame.shape[1] - x_fixed_safe)
+                                    
+                                    # Get the stamina bar ROI with safety checks
+                                    if height_safe > 0 and width_safe > 0:
+                                        stable_rect = frame[y_fixed_safe:y_fixed_safe + height_safe, 
+                                                           x_fixed_safe:x_fixed_safe + width_safe].copy()
+                                        
+                                        # Scale up stamina bar for better visibility (but keep it reasonable)
+                                        scale_factor = 3.0
+                                        scaled_width = int(width_safe * scale_factor)
+                                        scaled_height = int(height_safe * scale_factor)
+                                        
+                                        # Make sure the scaled dimensions aren't too large
+                                        max_width = frame.shape[1] // 2 - 20
+                                        if scaled_width > max_width:
+                                            scale_factor = max_width / width_safe
+                                            scaled_width = int(width_safe * scale_factor)
+                                            scaled_height = int(height_safe * scale_factor)
+                                        
+                                        # Resize with safety check
+                                        if stable_rect.size > 0 and scaled_width > 0 and scaled_height > 0:
+                                            scaled_roi = cv2.resize(stable_rect, (scaled_width, scaled_height))
+                                            
+                                            # Add a white border
+                                            cv2.rectangle(scaled_roi, (0, 0), (scaled_width-1, scaled_height-1), (255, 255, 255), 1)
+                                            
+                                            # Calculate positions for ROIs in the bottom panel
+                                            roi_y_pos = frame.shape[0] + 30
+                                            roi_x_pos = 10
+                                            
+                                            # Copy the scaled ROI to the bottom panel - left side
+                                            if roi_y_pos + scaled_height <= frame_with_panel.shape[0] and roi_x_pos + scaled_width <= frame_with_panel.shape[1]:
+                                                frame_with_panel[roi_y_pos:roi_y_pos + scaled_height, 
+                                                               roi_x_pos:roi_x_pos + scaled_width] = scaled_roi
+                                            
+                                            # Create mask visualization
+                                            hsv = cv2.cvtColor(stable_rect, cv2.COLOR_BGR2HSV)
+                                            mask = cv2.inRange(hsv, self.lower_yellow, self.upper_yellow)
+                                            
+                                            # Create colored mask (yellow on black)
+                                            mask_colored = np.zeros_like(stable_rect)
+                                            mask_colored[mask > 0] = [0, 255, 255]  # BGR for yellow
+                                            
+                                            # Scale up mask
+                                            scaled_mask = cv2.resize(mask_colored, (scaled_width, scaled_height))
+                                            
+                                            # Add a white border to the mask
+                                            cv2.rectangle(scaled_mask, (0, 0), (scaled_width-1, scaled_height-1), (255, 255, 255), 1)
+                                            
+                                            # Copy the mask to the bottom panel - right side
+                                            roi_x_pos = frame.shape[1]//2 + 10
+                                            if roi_y_pos + scaled_height <= frame_with_panel.shape[0] and roi_x_pos + scaled_width <= frame_with_panel.shape[1]:
+                                                frame_with_panel[roi_y_pos:roi_y_pos + scaled_height, 
+                                                               roi_x_pos:roi_x_pos + scaled_width] = scaled_mask
+                                    else:
+                                        # If we can't get a valid ROI, show an error message
+                                        error_msg = "Error: Invalid stamina bar region"
+                                        cv2.putText(frame_with_panel, error_msg, 
+                                                  (10, frame.shape[0] + 70), 
+                                                  cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                                except Exception as e:
+                                    # Something went wrong with the visualization - let's show an error
+                                    error_msg = f"Error: {str(e)}"
+                                    cv2.putText(frame_with_panel, error_msg, 
+                                              (10, frame.shape[0] + 70), 
+                                              cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                                
+                                # Draw yellow ratio text
+                                yellow_ratio_text = f"Yellow Ratio: {yellow_ratio:.2%}"
+                                cv2.putText(frame_with_panel, yellow_ratio_text, 
+                                          (10, frame.shape[0] + bottom_panel_height - 20), 
+                                          cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                                
+                                # Save the enhanced debug image
+                                cv2.imwrite(f"{self.output_dir}/{frame_number}.jpg", frame_with_panel)
             
         cap.release()
         print(f"Anzahl der Frames mit weniger als 5% Gelb: {low_yellow_frame_count}")

@@ -362,7 +362,10 @@ async def download_video(youtube_url):
 
 async def send_images(interaction: discord.Interaction, folder_path: str):
     """Sendet alle Bilder aus einem Ordner in 10er-Blöcken als ephemere Nachrichten."""
-    files = [f for f in os.listdir(folder_path) if f.endswith(('.png', '.jpg', '.jpeg', '.gif'))]
+    # Liste der zu ignorierenden Dateien (Diagnose-Bilder)
+    ignore_files = ["oos_histogram.png", "stamina_level.png", "stamina_color.png", "detected_stamina.jpg"]
+    
+    files = [f for f in os.listdir(folder_path) if f.endswith(('.png', '.jpg', '.jpeg', '.gif')) and f not in ignore_files]
 
     if not files:
         await interaction.channel.send("Keine Bilder im Ordner gefunden.")
