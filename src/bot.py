@@ -31,6 +31,7 @@ import matplotlib.pyplot as plt
 import io
 import matplotlib.dates as mdates
 import matplotlib.font_manager as fm
+import cv2
 
 matplotlib.use('Agg')  # Nutzt ein nicht-interaktives Backend für Speicherung
 
@@ -421,13 +422,30 @@ async def remove_this_channel(interaction: discord.Interaction):
 @tree.command(name="stamina_check", description="Analysiert ein YouTube-Video auf Stamina-Null-Zustände.")
 async def stamina_check(interaction: discord.Interaction, youtube_url: str, debug_mode: bool = False):
 
-    e = discord.Embed(title="Deaktiviert")
-    await interaction.response.send_message(embed=e)
-    return
-
     async def send_image(path, filename):
-        if os.path.exists(path):  # Überprüfen, ob die Datei existiert
+        """Sendet ein Bild an den Channel, überprüft die Existenz und fügt Fehlerbehandlung hinzu"""
+        try:
+            if not os.path.exists(path):
+                log.error(f"Bild nicht gefunden: {path}")
+                return False
+            
+            # Prüfe Dateigröße (Discord-Limit: 8MB für normale Server)
+            file_size = os.path.getsize(path)
+            if file_size > 8 * 1024 * 1024:  # 8MB in Bytes
+                log.warning(f"Bild zu groß ({file_size/1024/1024:.2f}MB): {path}")
+                # Verkleinere Bild, wenn es zu groß ist
+                resized_path = f"{os.path.splitext(path)[0]}_resized{os.path.splitext(path)[1]}"
+                img = cv2.imread(path)
+                scale_factor = 0.5  # Auf 50% verkleinern
+                new_img = cv2.resize(img, (0, 0), fx=scale_factor, fy=scale_factor)
+                cv2.imwrite(resized_path, new_img)
+                path = resized_path
+            
             await interaction.channel.send(file=discord.File(path, filename=filename))
+            return True
+        except Exception as e:
+            log.error(f"Fehler beim Senden des Bildes {path}: {str(e)}")
+            return False
 
 
     stamina_queue.append(interaction.id)
