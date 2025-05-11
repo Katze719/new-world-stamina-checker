@@ -15,7 +15,7 @@ import spreadsheet.memberlist
 import spreadsheet.payoutlist
 import spreadsheet.stats
 import spreadsheet.urlaub
-from videoAnalyzer import VideoAnalyzer
+from videoAnalyzerOld import VideoAnalyzer
 from collections import deque
 from google import genai
 from logger import log
@@ -31,6 +31,7 @@ import matplotlib.pyplot as plt
 import io
 import matplotlib.dates as mdates
 import matplotlib.font_manager as fm
+import cv2
 
 matplotlib.use('Agg')  # Nutzt ein nicht-interaktives Backend für Speicherung
 
@@ -421,13 +422,35 @@ async def remove_this_channel(interaction: discord.Interaction):
 @tree.command(name="stamina_check", description="Analysiert ein YouTube-Video auf Stamina-Null-Zustände.")
 async def stamina_check(interaction: discord.Interaction, youtube_url: str, debug_mode: bool = False):
 
-    e = discord.Embed(title="Deaktiviert")
-    await interaction.response.send_message(embed=e)
-    return
-
-    async def send_image(path, filename):
-        if os.path.exists(path):  # Überprüfen, ob die Datei existiert
-            await interaction.channel.send(file=discord.File(path, filename=filename))
+    async def send_image(path, filename, description=None):
+        """Sendet ein Bild an den Channel, überprüft die Existenz und fügt Fehlerbehandlung hinzu"""
+        try:
+            if not os.path.exists(path):
+                log.error(f"Bild nicht gefunden: {path}")
+                return False
+            
+            # Prüfe Dateigröße (Discord-Limit: 8MB für normale Server)
+            file_size = os.path.getsize(path)
+            if file_size > 8 * 1024 * 1024:  # 8MB in Bytes
+                log.warning(f"Bild zu groß ({file_size/1024/1024:.2f}MB): {path}")
+                # Verkleinere Bild, wenn es zu groß ist
+                resized_path = f"{os.path.splitext(path)[0]}_resized{os.path.splitext(path)[1]}"
+                img = cv2.imread(path)
+                scale_factor = 0.5  # Auf 50% verkleinern
+                new_img = cv2.resize(img, (0, 0), fx=scale_factor, fy=scale_factor)
+                cv2.imwrite(resized_path, new_img)
+                path = resized_path
+            
+            # Wenn eine Beschreibung vorhanden ist, sende sie mit dem Bild
+            if description:
+                embed = discord.Embed(description=description, color=discord.Color.blue())
+                await interaction.channel.send(file=discord.File(path, filename=filename), embed=embed)
+            else:
+                await interaction.channel.send(file=discord.File(path, filename=filename))
+            return True
+        except Exception as e:
+            log.error(f"Fehler beim Senden des Bildes {path}: {str(e)}")
+            return False
 
 
     stamina_queue.append(interaction.id)
@@ -464,8 +487,8 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
         try:
             log.info(f"Geht los für {interaction.user.display_name}")
 
-            shutil.rmtree(DOWNLOAD_FOLDER)
-            shutil.rmtree(OUTPUT_FOLDER)
+            shutil.rmtree(DOWNLOAD_FOLDER, ignore_errors=True)
+            shutil.rmtree(OUTPUT_FOLDER, ignore_errors=True)
             os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
             os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
@@ -478,6 +501,27 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
             video_path = await download_video(youtube_url)
             time_end_download = time.time()
 
+            # Video-Informationen anzeigen wenn Debug-Modus
+            if debug_mode:
+                cap = cv2.VideoCapture(video_path)
+                frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                fps = cap.get(cv2.CAP_PROP_FPS)
+                duration = frame_count / fps if fps > 0 else 0
+                cap.release()
+                
+                embed.title = "🎬 Video-Informationen"
+                embed.description = (
+                    f"**Auflösung:** {frame_width}x{frame_height} Pixel\n"
+                    f"**Framerate:** {fps:.2f} FPS\n"
+                    f"**Frames:** {frame_count:,}\n"
+                    f"**Dauer:** {duration/60:.1f} Minuten\n"
+                    f"**Download-Zeit:** {format_time(time_end_download - time_start_download)}\n\n"
+                    f"Starte jetzt Training..."
+                )
+                await edit_msg(interaction, msg.id, embed)
+                await asyncio.sleep(2)  # Kurze Pause, damit der Nutzer die Infos lesen kann
             
             video_analyzer = VideoAnalyzer(video_path, debug=debug_mode)
             skip_first_frames = 100
@@ -485,29 +529,84 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
             training_frame_count = int(video_analyzer.frame_count * 0.8)
 
             embed.title = "🚀 Training läuft"
-            embed.description = f"Trainiere Algorythmus mit {training_frame_count} von {video_analyzer.frame_count} Frames..."
+            embed.description = (
+                f"Trainiere Algorithmus mit {training_frame_count:,} von {video_analyzer.frame_count:,} Frames...\n\n"
+                f"Der Bot sucht gerade die Stamina-Anzeige im Video."
+            )
             await edit_msg(interaction, msg.id, embed)
 
             log.info("Starte Training")
             time_start_training = time.time()
-            stable_rectangle = await video_analyzer.find_stable_rectangle(training_frame_count, skip_first_frames)
+            stable_rectangle = await video_analyzer.find_stable_rectangle(training_frame_count)
             time_end_training = time.time()
 
-            if debug_mode:
-                embed.title = "Stabiles Rechteck"
-                embed.description = f"Gefunden auf: {stable_rectangle}"
-                await interaction.channel.send(embed=embed)
+            if stable_rectangle is None:
+                embed.title = "❌ Fehler beim Training"
+                embed.description = "Konnte keine stabile Stamina-Anzeige im Video finden. Bitte überprüfe das Video oder versuche es mit einem anderen Video."
+                embed.color = discord.Color.red()
+                await edit_msg(interaction, msg.id, embed)
+                return
 
-            embed.title = "🔍 Analyse läuft"
-            embed.description = f"Analysiere {video_analyzer.frame_count} Frames..."
-            await edit_msg(interaction, msg.id, embed)
+            if debug_mode:
+                # Erstes Frame extrahieren und Rechteck anzeigen
+                cap = cv2.VideoCapture(video_path)
+                ret, frame = cap.read()
+                cap.release()
+                
+                if ret:
+                    x, y, w, h = stable_rectangle
+                    debug_frame = frame.copy()
+                    # Stamina-Rechteck in Grün einzeichnen
+                    cv2.rectangle(debug_frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                    
+                    # ROI-Bereich in Lila einzeichnen
+                    x1, y1, x2, y2 = video_analyzer._calculate_roi(frame)
+                    cv2.rectangle(debug_frame, (x1, y1), (x2, y2), (138, 43, 226), 2)
+                    
+                    # Text für Stamina-Bereich
+                    cv2.putText(debug_frame, f"Stamina-Anzeige: {w}x{h}", (x, y-10), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                    
+                    # Speichern und anzeigen
+                    debug_path = os.path.join(OUTPUT_FOLDER, "detected_stamina.jpg")
+                    cv2.imwrite(debug_path, debug_frame)
+                
+                embed.title = "🎯 Stamina-Anzeige gefunden"
+                embed.description = (
+                    f"**Position der Stamina-Anzeige gefunden:**\n"
+                    f"X: {stable_rectangle[0]}, Y: {stable_rectangle[1]}\n"
+                    f"Breite: {stable_rectangle[2]}, Höhe: {stable_rectangle[3]}\n\n"
+                    f"**Trainingszeit:** {format_time(time_end_training - time_start_training)}\n"
+                    f"Starte jetzt die vollständige Analyse..."
+                )
+                await edit_msg(interaction, msg.id, embed)
+                
+                # Sende Debug-Bild
+                await send_image(debug_path, "detected_stamina.jpg", 
+                                "Erkannte Stamina-Anzeige (grün) im Such-Bereich (lila)")
+            else:
+                embed.title = "🔍 Analyse läuft"
+                embed.description = f"Analysiere {video_analyzer.frame_count:,} Frames..."
+                await edit_msg(interaction, msg.id, embed)
 
             async def send_progress_update(processed: int, total: int):
+                progress_percent = (processed / total) * 100 if total > 0 else 0
+                
                 embed = discord.Embed(
                     title="🔍 Analyse läuft...",
-                    description=f"Fortschritt: {processed} von {total} Frames analysiert.",
+                    description=(
+                        f"Fortschritt: {processed:,} von {total:,} Frames analysiert "
+                        f"({progress_percent:.1f}%)"
+                    ),
                     color=discord.Color.blue()
                 )
+                
+                # Progress-Bar hinzufügen
+                bar_length = 20
+                filled_length = int(bar_length * progress_percent / 100)
+                bar = "█" * filled_length + "░" * (bar_length - filled_length)
+                embed.add_field(name="Fortschritt", value=f"`{bar}` {progress_percent:.1f}%", inline=False)
+                                
                 log.info(f"Fortschritt: {processed} von {total} Frames analysiert.")
                 await edit_msg(interaction, msg.id, embed)
 
@@ -520,10 +619,28 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
 
             embed.title = f"✅ Analyse abgeschlossen! für {youtube_url}"
 
+            # Ausführlichere Debug-Informationen
             if debug_mode:
-                t_info = f"**Verbrauche Zeit:** {format_time(time_end_analyze - time_start_download)}\n- Download: {format_time(time_end_download - time_start_download)}\n- Training: {format_time(time_end_training - time_start_training)}\n- Analyse: {format_time(time_end_analyze - time_start_analyze)}\n\n"
+                total_time = time_end_analyze - time_start_download
+                t_info = (
+                    f"**Gesamtzeit:** {format_time(total_time)}\n"
+                    f"**Detaillierte Zeiten:**\n"
+                    f"- Download: {format_time(time_end_download - time_start_download)} ({((time_end_download - time_start_download)/total_time)*100:.1f}%)\n"
+                    f"- Training: {format_time(time_end_training - time_start_training)} ({((time_end_training - time_start_training)/total_time)*100:.1f}%)\n"
+                    f"- Analyse: {format_time(time_end_analyze - time_start_analyze)} ({((time_end_analyze - time_start_analyze)/total_time)*100:.1f}%)\n\n"
+                    f"**Analysegeschwindigkeit:** {video_analyzer.frame_count / (time_end_analyze - time_start_analyze):.1f} Frames/Sekunde\n\n"
+                )
+                
+                # Zusätzliche Parameter-Informationen
+                t_info += (
+                    f"**Algorithmus-Parameter:**\n"
+                    f"- Gelb-Farberkennung (HSV): [{video_analyzer.lower_yellow}] bis [{video_analyzer.upper_yellow}]\n"
+                    f"- Minimale Rechteckgröße: {video_analyzer.min_rect_width}x{video_analyzer.min_rect_height}\n"
+                    f"- Erkannte OOS-Momente: {len(timestamps)}\n\n"
+                )
             else:
                 t_info = ""
+                
             embed.description = f"{t_info}⏱ **An Folgenden Stellen bist du Out Of Stamina:**\n"
 
             # Liste für die drei Gruppen
@@ -544,35 +661,60 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
 
             embed.color = discord.Color.green()
             await edit_msg(interaction, msg.id, embed)
+            
+            # Erstelle einen Histogramm der OOS-Ereignisse über die Zeit
+            if len(timestamps) > 0:
+                # Konvertiere Timestamps in Sekunden für das Histogramm
+                seconds = []
+                for ts in timestamps:
+                    parts = ts.split(":")
+                    if len(parts) == 2:
+                        min_val, sec_val = map(int, parts)
+                        seconds.append(min_val * 60 + sec_val)
+                
+                if len(seconds) > 0:
+                    plt.figure(figsize=(10, 6))
+                    plt.hist(seconds, bins=min(20, len(seconds)), color='skyblue', edgecolor='black')
+                    plt.title('Verteilung der Out-of-Stamina Ereignisse')
+                    plt.xlabel('Zeit im Video (Sekunden)')
+                    plt.ylabel('Anzahl der Ereignisse')
+                    plt.grid(axis='y', alpha=0.75)
+                    
+                    # Speichern
+                    histogram_path = os.path.join(OUTPUT_FOLDER, "oos_histogram.png")
+                    plt.savefig(histogram_path)
+                    plt.close()
+                    
+                    # Senden
+                    await send_image(histogram_path, "oos_histogram.png", 
+                                    "Verteilung der Out-of-Stamina Ereignisse über die Zeit")
+            
+            # Zusätzliche Debug-Info, wenn Debug-Modus aktiviert
+            if debug_mode:
+                # Sende zusätzliche Debug-Bilder
+                await send_images(interaction, OUTPUT_FOLDER)
+            
+            # Sende zusammenfassendes Debug-Info-Embed
+            debug_summary = discord.Embed(
+                title="🔬 Debug-Zusammenfassung",
+                description=(
+                    f"**Analysierte Frames:** {video_analyzer.frame_count:,}\n"
+                    f"**Erkannte OOS-Momente:** {len(timestamps)}\n"
+                    f"**OOS-Frequenz:** Alle {video_analyzer.frame_count / (len(timestamps) or 1) / video_analyzer.fps:.1f} Sekunden\n"
+                    f"**Gesamtzeit:** {format_time(time_end_analyze - time_start_download)}"
+                ),
+                color=discord.Color.gold()
+            )
+            await interaction.channel.send(embed=debug_summary)
         except Exception as e:
             embed.title = "❌ Fehler"
-            embed.description = str(e)
+            embed.description = f"Es ist ein Fehler aufgetreten: {str(e)}\n\nBitte versuche es später erneut oder kontaktiere einen Administrator."
             embed.color = discord.Color.red()
             await edit_msg(interaction, msg.id, embed)
+            log.error(f"Fehler bei Stamina-Check: {str(e)}")
 
         if debug_mode:
-            await send_images(interaction, OUTPUT_FOLDER)
-            await send_image(f"{video_analyzer.output_dir_debug}/debug.jpg", "debug.jpg")
-            if not len(video_analyzer.yellow_hex_colors):
-                log.error("fuck")
-                return
-            t = colorCheck.get_hsv_range_from_hex_list(list(video_analyzer.yellow_hex_colors))
-            await interaction.channel.send(str(t))
-            s = sorted(video_analyzer.yellow_hex_colors)
-            await interaction.channel.send(f"First: {s[:50]}\n\nLast: {s[-50:]}")
-            current_gradiant = colorCheck.generate_hsv_gradient((t[0][0], t[1][0]), (t[0][1], t[1][1]), (t[0][2], t[1][2]))
-            lo = video_analyzer.lower_yellow
-            up = video_analyzer.upper_yellow
-            expected_gradiant = colorCheck.generate_hsv_gradient((lo[0], up[0]), (lo[1], up[1]), (lo[2], up[2]))
-            fig, axs = plt.subplots(2, 1, figsize=(20, 10), dpi=200)
-            axs[0].imshow(current_gradiant)
-            axs[0].set_title(f"Detected Color Range: {t}")
-            axs[0].axis("off")
-            axs[1].imshow(expected_gradiant)
-            axs[1].set_title(f"Expected Color Range: {lo}:{up}")
-            axs[1].axis("off")
-            plt.savefig("hsv_gradient.png")
-            await send_image("./hsv_gradient.png", "gradient.png")
+            await interaction.channel.send("Debug-Modus: Analyse abgeschlossen. Alle Debug-Bilder wurden gesendet.")
 
         log.info(f"Anfrage Fertig von {interaction.user.display_name}")
 

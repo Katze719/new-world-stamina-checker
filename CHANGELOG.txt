@@ -1,3 +1,35 @@
+## Version 1.2.0-release
+
+### **Wichtige Updates**
+- **Stamina-Check Reaktivierung:**
+  - Der `/stamina_check` Command wurde reaktiviert und funktioniert wieder
+  - Deutlich verbesserte Debug-Informationen im Debug-Modus
+  - Hinzufügung von visuellen Elementen wie Fortschrittsbalken und Histogrammen
+
+### **Experimenteller Status**
+- Der Stamina-Check ist noch als **experimentell** eingestuft
+- Bekannte Einschränkungen bei der Erkennung bestimmter Stamina-Balken
+- Beste Ergebnisse bei Standard-UI ohne Anpassungen
+
+### **Verbesserungen**
+- **Debug-Modus-Erweiterungen:**
+  - Visualisierung der erkannten Stamina-Anzeige mit Umrandungen
+  - Detaillierte Zeitanalyse mit prozentualer Aufschlüsselung
+  - Histogram-Erzeugung für zeitliche Verteilung der Out-of-Stamina Ereignisse
+  - Verbesserte Fehlerbehandlung mit aussagekräftigen Meldungen
+
+### **Einschränkungen**
+- Die automatische VOD-Analyse durch Posten von YouTube-Links wurde vorübergehend deaktiviert
+- Vollständige Implementierung und Reaktivierung der automatischen Analyse folgt in Version 1.3.0
+
+### **Ausblick**
+- Version 1.3.0 (geplant für Ende Q3):
+  - Vollständige Reaktivierung der automatischen VOD-Erkennung
+  - Problemlose Erkennung verschiedener UI-Varianten
+  - Integration mit dem Coaching-System für automatisierte Analysen
+
+---
+
 ## Version 1.1.2-release
 
 ### **Neue Funktionen**
