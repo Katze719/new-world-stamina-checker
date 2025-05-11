@@ -510,18 +510,19 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
             duration = frame_count / fps if fps > 0 else 0
             cap.release()
             
-            video_info_embed = discord.Embed(
-                title="🎬 Video-Informationen",
-                description=(
-                    f"**Auflösung:** {frame_width}x{frame_height} Pixel\n"
-                    f"**Framerate:** {fps:.2f} FPS\n"
-                    f"**Frames:** {frame_count:,}\n"
-                    f"**Dauer:** {duration/60:.1f} Minuten\n"
-                    f"**Download-Zeit:** {format_time(time_end_download - time_start_download)}"
-                ),
-                color=discord.Color.blue()
-            )
-            await interaction.channel.send(embed=video_info_embed)
+            if debug_mode:
+                video_info_embed = discord.Embed(
+                    title="🎬 Video-Informationen",
+                    description=(
+                        f"**Auflösung:** {frame_width}x{frame_height} Pixel\n"
+                        f"**Framerate:** {fps:.2f} FPS\n"
+                        f"**Frames:** {frame_count:,}\n"
+                        f"**Dauer:** {duration/60:.1f} Minuten\n"
+                        f"**Download-Zeit:** {format_time(time_end_download - time_start_download)}"
+                    ),
+                    color=discord.Color.blue()
+                )
+                await interaction.channel.send(embed=video_info_embed)
             
             video_analyzer = VideoAnalyzer(video_path, debug=debug_mode)
             skip_first_frames = 100
@@ -672,7 +673,7 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
                         min_val, sec_val = map(int, parts)
                         seconds.append(min_val * 60 + sec_val)
                 
-                if len(seconds) > 0:
+                if len(seconds) > 0 and debug_mode:
                     plt.figure(figsize=(10, 6))
                     plt.hist(seconds, bins=min(20, len(seconds)), color='skyblue', edgecolor='black')
                     plt.title('Verteilung der Out-of-Stamina Ereignisse')
@@ -690,7 +691,7 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
                                     "Verteilung der Out-of-Stamina Ereignisse über die Zeit")
             
             # Create and send stamina level graph
-            if stamina_data:
+            if stamina_data and debug_mode:
                 plt.figure(figsize=(12, 6))
                 times = [t for t, _ in stamina_data]
                 levels = [level for _, level in stamina_data]
@@ -732,7 +733,7 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
                                 "Stamina-Füllstand über die Dauer des Videos")
                 
             # Create and send hue graph if data is available
-            if hue_data and len(hue_data) > 10:
+            if hue_data and len(hue_data) > 10 and debug_mode:
                 plt.figure(figsize=(12, 6))
                 
                 times = [t for t, _, _, _ in hue_data]
@@ -797,18 +798,18 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
                 # Sende zusätzliche Debug-Bilder
                 await send_images(interaction, OUTPUT_FOLDER)
             
-            # Sende zusammenfassendes Debug-Info-Embed
-            debug_summary = discord.Embed(
-                title="🔬 Debug-Zusammenfassung",
-                description=(
-                    f"**Analysierte Frames:** {video_analyzer.frame_count:,}\n"
-                    f"**Erkannte OOS-Momente:** {len(timestamps)}\n"
-                    f"**OOS-Frequenz:** Alle {video_analyzer.frame_count / (len(timestamps) or 1) / video_analyzer.fps:.1f} Sekunden\n"
-                    f"**Gesamtzeit:** {format_time(time_end_analyze - time_start_download)}"
-                ),
-                color=discord.Color.gold()
-            )
-            await interaction.channel.send(embed=debug_summary)
+                # Sende zusammenfassendes Debug-Info-Embed
+                debug_summary = discord.Embed(
+                    title="🔬 Debug-Zusammenfassung",
+                    description=(
+                        f"**Analysierte Frames:** {video_analyzer.frame_count:,}\n"
+                        f"**Erkannte OOS-Momente:** {len(timestamps)}\n"
+                        f"**OOS-Frequenz:** Alle {video_analyzer.frame_count / (len(timestamps) or 1) / video_analyzer.fps:.1f} Sekunden\n"
+                        f"**Gesamtzeit:** {format_time(time_end_analyze - time_start_download)}"
+                    ),
+                    color=discord.Color.gold()
+                )
+                await interaction.channel.send(embed=debug_summary)
         except Exception as e:
             embed.title = "❌ Fehler"
             embed.description = f"Es ist ein Fehler aufgetreten: {str(e)}\n\nBitte versuche es später erneut oder kontaktiere einen Administrator."
