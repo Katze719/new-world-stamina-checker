@@ -919,7 +919,7 @@ async def on_message(message: discord.Message):
     
     match = YOUTUBE_REGEX.search(message.content)
     if match:
-        stamina_queue.append(message.id)
+        # stamina_queue.append(message.id)
 
         youtube_url = match.group()
 
