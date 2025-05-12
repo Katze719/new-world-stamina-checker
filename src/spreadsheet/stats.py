@@ -39,16 +39,19 @@ def find_free_cell_in_row(row: list):
     return len(row) + 1 + ROW_START_OFFSET
 
 
-async def stats(client: gspread_asyncio.AsyncioGspreadClientManager, interaction: discord.Interaction, parse_display_name: callable, spread_settings: jsonFileManager.JsonFileManager):
+async def stats(client: gspread_asyncio.AsyncioGspreadClientManager, interaction: discord.Interaction, parse_display_name: callable, spread_settings: jsonFileManager.JsonFileManager, target_user: discord.Member = None):
     """
     Fetch the percentages from war participation
     """
+    # Use target_user if provided, otherwise use interaction.user
+    user = target_user or interaction.user
+    
     # check if member has a company role
     spreadsheet_role_settings = await spread_settings.load()
     if "document_id" not in spreadsheet_role_settings:
         return
 
-    user_roles = interaction.user.roles
+    user_roles = user.roles
     user_role_ids = [role.id for role in user_roles]
 
     def get_company(member: discord.Member):
@@ -63,8 +66,11 @@ async def stats(client: gspread_asyncio.AsyncioGspreadClientManager, interaction
 
         return company
     
-    company = get_company(interaction.user)
+    company = get_company(user)
     if company is None:
+        # When an admin views another user's stats, make the error message visible to everyone
+        is_ephemeral = True if user == interaction.user else False
+        await interaction.followup.send(f"{'Du hast' if user == interaction.user else f'{user.display_name} hat'} keine Kompanie-Rolle und daher keine Statistiken.", ephemeral=is_ephemeral)
         return
 
     def full_parse(member):
@@ -79,7 +85,7 @@ async def stats(client: gspread_asyncio.AsyncioGspreadClientManager, interaction
         member_name = member_name.replace(" ", "")
         return member_name
     
-    member_name = full_parse(interaction.user)
+    member_name = full_parse(user)
     
     now = datetime.datetime.now()
 
@@ -105,8 +111,11 @@ async def stats(client: gspread_asyncio.AsyncioGspreadClientManager, interaction
 
     # print(A_col)
 
-    embed = discord.Embed(title=f"Stats", color=discord.Color.blurple())
-    embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.avatar.url)
+    embed = discord.Embed(
+        title=f"Stats{' für ' + user.display_name if user != interaction.user else ''}",
+        color=discord.Color.blurple()
+    )
+    embed.set_author(name=user.display_name, icon_url=user.avatar.url if user.avatar else None)
 
     async def get_quota(sheet_ref, month_label, year_label):
         # Return quota data (list of values) if member exists in the sheet, otherwise None.
@@ -143,8 +152,8 @@ async def stats(client: gspread_asyncio.AsyncioGspreadClientManager, interaction
             embed.add_field(
                 name=f"{current_month} {current_year}",
                 value=(
-                    "Deine Daten für diesen Monat sind noch nicht verfügbar.\n"
-                    "Möglicherweise befindet sich der Bot noch in den Vorbereitungen, du wirst gerade verifiziert oder der Raid-Helper wurde noch nicht aktualisiert."
+                    f"{'Deine' if user == interaction.user else f'{user.display_name}s'} Daten für diesen Monat sind noch nicht verfügbar.\n"
+                    f"Möglicherweise befindet sich der Bot noch in den Vorbereitungen, {'du wirst' if user == interaction.user else f'{user.display_name} wird'} gerade verifiziert oder der Raid-Helper wurde noch nicht aktualisiert."
                 ),
                 inline=False
             )
@@ -152,8 +161,8 @@ async def stats(client: gspread_asyncio.AsyncioGspreadClientManager, interaction
             embed.add_field(
                 name="Teilnahme",
                 value=(
-                    "Deine Teilnahme wurde im aktuellen Monat nicht gefunden.\n"
-                    "Dies kann daran liegen, dass der Bot noch Vorbereitungen trifft, du eventuell noch in der Verifizierung bist oder es in diesem Monat noch keinen neuen Raid-Helper gab."
+                    f"{'Deine' if user == interaction.user else f'{user.display_name}s'} Teilnahme wurde im aktuellen Monat nicht gefunden.\n"
+                    f"Dies kann daran liegen, dass der Bot noch Vorbereitungen trifft, {'du eventuell' if user == interaction.user else f'{user.display_name} eventuell'} noch in der Verifizierung {'bist' if user == interaction.user else 'ist'} oder es in diesem Monat noch keinen neuen Raid-Helper gab."
                 ),
                 inline=False
             )
@@ -189,7 +198,7 @@ async def stats(client: gspread_asyncio.AsyncioGspreadClientManager, interaction
         embed.add_field(
             name=f"{last_month_name} {last_month_year}",
             value=(
-                "Du wurdest nicht in der Payoutliste gefunden.\n"
+                f"{'Du wurdest' if user == interaction.user else f'{user.display_name} wurde'} nicht in der Payoutliste gefunden.\n"
                 "Aufgrund von Änderungen (Breaking Changes) in der Payoutliste können der Februar sowie "
                 "alle älteren Monate momentan nicht angezeigt werden.\nWir bitten um dein Verständnis."
             ),

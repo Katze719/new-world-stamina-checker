@@ -1926,9 +1926,23 @@ async def test(interaction: discord.Interaction):
 
     # await spreadsheet.stats.stats(spreadsheet_acc, interaction, parse_name, spreadsheet_role_settings_manager)
 
-@tree.command(name="stats", description="Zeigt deine Stats aus dem google sheet")
-async def stats(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
+@tree.command(name="stats", description="Zeigt Stats aus dem Google Sheet (Admins können Stats für andere Nutzer einsehen)")
+async def stats(interaction: discord.Interaction, user: Optional[discord.Member] = None):
+    # Only make messages ephemeral when users are checking their own stats
+    # For admins checking other users' stats, make the message visible to everyone
+    is_ephemeral = True
+    if user is not None and interaction.user.guild_permissions.administrator:
+        is_ephemeral = False
+    
+    await interaction.response.defer(ephemeral=is_ephemeral)
+    
+    # If user parameter is specified but requestor is not admin, show error
+    if user is not None and not interaction.user.guild_permissions.administrator:
+        await interaction.followup.send("Du hast keine Berechtigung, die Stats anderer Nutzer anzusehen.", ephemeral=True)
+        return
+    
+    # If user parameter is not specified or not allowed, use the requestor
+    target_user = user if user and interaction.user.guild_permissions.administrator else interaction.user
 
     def parse_name(member : discord.Member):
         pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
@@ -1957,7 +1971,7 @@ async def stats(interaction: discord.Interaction):
                 
             return member.display_name
 
-    await spreadsheet.stats.stats(spreadsheet_acc, interaction, parse_name, spreadsheet_role_settings_manager)
+    await spreadsheet.stats.stats(spreadsheet_acc, interaction, parse_name, spreadsheet_role_settings_manager, target_user)
 
 
 @tree.command(name="set_company_role", description="Setze die Company Rolle")
