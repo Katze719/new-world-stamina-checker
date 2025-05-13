@@ -2200,7 +2200,6 @@ async def abwesenheit(interaction: discord.Interaction):
     modal.fake_init(spreadsheet_acc, parse_name, spreadsheet_role_settings_manager)
     modal.add_absence_end_event = add_absence_end_event
     await interaction.response.send_modal(modal)
-
 @tree.command(name="set_error_log_channel", description="Setze den Channel für Error Logs")
 @app_commands.checks.has_permissions(administrator=True)
 async def set_error_log_channel(interaction: discord.Interaction, channel: discord.TextChannel):
@@ -4528,4 +4527,82 @@ async def abwesenheit_hilfe(interaction: discord.Interaction):
     
     await interaction.response.send_message(embed=embed)
 
+@tree.command(name="urlaub_status", description="Zeigt an, wie viele Nutzer aktuell im Urlaub sind")
+async def urlaub_status(interaction: discord.Interaction):
+    """Show how many users are currently on vacation based on the events file"""
+    await interaction.response.defer()
+    
+    events_data = await events_manager.load() or {"events": []}
+    events = events_data["events"]
+    
+    # Filter for absence end events only
+    absence_events = [event for event in events if event.get("type") == EventType.REMOVE_ABSENCE_INDICATOR]
+    
+    # Get current time
+    now = datetime.datetime.now(datetime.timezone.utc)
+    
+    # Map to organize absence data
+    absences = {}
+    
+    # Process each absence end event
+    for event in absence_events:
+        try:
+            context = event.get("context", {})
+            execution_date_str = event.get("execution_date", "")
+            
+            user_id = context.get("user_id")
+            username = context.get("username", "Unbekannt")
+            channel_id = context.get("channel_id")
+            
+            # Skip incomplete events
+            if not (user_id and channel_id and execution_date_str):
+                continue
+                
+            # Parse end date
+            end_date = datetime.datetime.fromisoformat(execution_date_str)
+            
+            # Only include current absences
+            if end_date > now:
+                absences[user_id] = {
+                    "username": username,
+                    "channel_id": channel_id,
+                    "end_date": end_date
+                }
+        except Exception as e:
+            log.error(f"Error processing absence event: {str(e)}")
+    
+    # Create response embed
+    embed = discord.Embed(
+        title="🏝️ Aktuelle Abwesenheiten",
+        description=f"Insgesamt sind **{len(absences)}** Mitglieder aktuell im Urlaub.",
+        color=discord.Color.gold()
+    )
+    
+    # List all absences if any exist
+    if absences:
+        absence_list = ""
+        for user_id, data in absences.items():
+            channel = interaction.guild.get_channel(int(data["channel_id"]))
+            channel_name = f"#{channel.name}" if channel else "Unbekannter Kanal"
+            
+            # Format end date
+            end_date_str = data["end_date"].strftime("%d.%m.%Y")
+            remaining_days = (data["end_date"].replace(tzinfo=None) - datetime.datetime.now().replace(tzinfo=None)).days
+            
+            absence_list += f"**{data['username']}** - {channel_name} - Zurück am {end_date_str}"
+            if remaining_days > 0:
+                absence_list += f" (noch {remaining_days} Tage)"
+            absence_list += "\n"
+        
+        # Add field with details if list isn't too long
+        if len(absence_list) <= 1024:
+            embed.add_field(name="Abwesende Mitglieder", value=absence_list, inline=False)
+        else:
+            embed.add_field(name="Abwesende Mitglieder", 
+                           value="Die Liste ist zu lang, um sie vollständig anzuzeigen.", 
+                           inline=False)
+    
+    await interaction.followup.send(embed=embed)
+
 bot.run(DISCORD_TOKEN)
+
