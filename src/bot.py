@@ -162,6 +162,15 @@ async def process_remove_absence_indicator(event):
                 member = guild.get_member(int(user_id))
                 if member:
                     try:
+                        # Remove absence role if configured
+                        roles_settings = await spreadsheet_role_settings_manager.load()
+                        if "abwesenheits_role" in roles_settings:
+                            absence_role_id = roles_settings["abwesenheits_role"]
+                            absence_role = guild.get_role(absence_role_id)
+                            if absence_role and absence_role in member.roles:
+                                await member.remove_roles(absence_role)
+                                log.info(f"Removed absence role from {username}")
+                        
                         await channel.send(f"{member.mention} Deine Abwesenheit ist jetzt vorbei. Willkommen zurück!")
                     except discord.HTTPException:
                         log.error(f"Failed to send welcome back message to {username}")
@@ -4114,6 +4123,18 @@ async def help_command(interaction: discord.Interaction, category: Optional[str]
                     "description": "Führt die Event-Verarbeitung manuell aus.",
                     "example": "/manually_process_events",
                     "admin_only": True
+                },
+                {
+                    "name": "/set_abwesenheits_role",
+                    "description": "Setzt die Rolle, die Nutzern bei Abwesenheit zugewiesen wird.",
+                    "example": "/set_abwesenheits_role role:@Abwesend",
+                    "admin_only": True
+                },
+                {
+                    "name": "/remove_abwesenheits_role",
+                    "description": "Entfernt die Einstellung für die Abwesenheits-Rolle.",
+                    "example": "/remove_abwesenheits_role",
+                    "admin_only": True
                 }
             ]
         },
@@ -4273,7 +4294,7 @@ async def help_command(interaction: discord.Interaction, category: Optional[str]
                 },
                 {
                     "name": "/abwesenheit",
-                    "description": "Teilt mit, wann du abwesend bist.",
+                    "description": "Teilt mit, wann du abwesend bist. Fügt einen roten Kreis zum Kanal hinzu und weist dir die Abwesenheits-Rolle zu, falls konfiguriert.",
                     "example": "/abwesenheit",
                     "admin_only": False
                 }
@@ -4603,6 +4624,25 @@ async def urlaub_status(interaction: discord.Interaction):
                            inline=False)
     
     await interaction.followup.send(embed=embed)
+
+@tree.command(name="set_abwesenheits_role", description="Setze die Rolle für Abwesenheit")
+@app_commands.checks.has_permissions(administrator=True)
+async def set_abwesenheits_role(interaction: discord.Interaction, role: discord.Role):
+    roles = await spreadsheet_role_settings_manager.load()
+    roles["abwesenheits_role"] = role.id
+    await spreadsheet_role_settings_manager.save(roles)
+    await interaction.response.send_message(f"Abwesenheits-Rolle wurde erfolgreich auf {role.mention} gesetzt!", ephemeral=True)
+
+@tree.command(name="remove_abwesenheits_role", description="Entferne die Rolle für Abwesenheit")
+@app_commands.checks.has_permissions(administrator=True)
+async def remove_abwesenheits_role(interaction: discord.Interaction):
+    roles = await spreadsheet_role_settings_manager.load()
+    if "abwesenheits_role" in roles:
+        del roles["abwesenheits_role"]
+        await spreadsheet_role_settings_manager.save(roles)
+        await interaction.response.send_message(f"Abwesenheits-Rolle wurde erfolgreich entfernt!", ephemeral=True)
+    else:
+        await interaction.response.send_message(f"Es ist keine Abwesenheits-Rolle gesetzt!", ephemeral=True)
 
 bot.run(DISCORD_TOKEN)
 

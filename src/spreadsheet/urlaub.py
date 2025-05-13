@@ -129,6 +129,15 @@ class UrlaubsModal(discord.ui.Modal, title="Abwesenheit eintragen"):
             # Add red circle to channel name
             await interaction.channel.edit(name=f"🔴-{interaction.channel.name}")
             
+            # Assign absence role if configured
+            role_settings = await self.P_spread_settings.load()
+            if "abwesenheits_role" in role_settings:
+                absence_role_id = role_settings["abwesenheits_role"]
+                absence_role = interaction.guild.get_role(absence_role_id)
+                if absence_role:
+                    await interaction.user.add_roles(absence_role, reason="Abwesenheit gemeldet")
+                    print(f"Assigned absence role to {interaction.user.display_name}")
+            
             # Schedule an event to remove the red circle at the end of the absence period
             if self.add_absence_end_event:
                 # Convert end_date to datetime with time set to end of day (23:59:59)
