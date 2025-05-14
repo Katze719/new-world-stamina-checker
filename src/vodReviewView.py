@@ -13,7 +13,7 @@ EMOJI = {"schlecht":"🔴", "mittel":"🟡", "gut":"🟢", "nicht bewertet":"⚪
 # ---------- Haupt-View ---------- #
 class VodReviewMainView(discord.ui.View):
     def __init__(self, target: discord.Member):
-        super().__init__(timeout=900)
+        super().__init__(timeout=None)
         self.target   = target
         self.ratings  = {
             "positioning":        "",
@@ -115,12 +115,12 @@ class VodReviewMainView(discord.ui.View):
         if self.notes:
             final.add_field(name="Notizen", value=self.notes, inline=False)
 
+        # Send final review as a new message
         await interaction.response.send_message(embed=final)
-
-        # View stilllegen
-        for child in self.children:
-            child.disabled = True
-        await self.refresh_message()   # blendet Buttons aus
+        
+        # Delete the original message with the review UI
+        if self.message:
+            await self.message.delete()
 
 # ---------- View mit Selects (Teil 1 oder 2) ---------- #
 class RatingsView(discord.ui.View):

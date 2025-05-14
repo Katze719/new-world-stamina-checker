@@ -2221,7 +2221,8 @@ async def vod_review(inter: discord.Interaction, member: discord.Member):
         description="Noch keine Eingaben.",
         color=discord.Color.blurple()
     )
-    await inter.response.send_message(embed=placeholder, view=view, ephemeral=True)
+    # Sending as non-ephemeral message so it doesn't expire
+    await inter.response.send_message(embed=placeholder, view=view, ephemeral=False)
     view.message = await inter.original_response()   # Referenz speichern
 
 @tree.command(name="set_error_log_channel", description="Setze den Channel für Error Logs")
