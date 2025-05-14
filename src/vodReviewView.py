@@ -4,12 +4,37 @@ import datetime
 # ---------- Hilfs-Utilities ---------- #
 def norm(val: str) -> str:
     val = val.lower().strip()
-    if val in {"schlecht", "rot", "r", "s"}:     return "schlecht"
-    if val in {"mittel", "gelb", "m", "y"}:      return "mittel"
-    if val in {"gut", "grün", "g"}:              return "gut"
+    # Handle numeric values
+    if val in {"1", "eins", "verbesserungswürdig"}:         return "1"
+    if val in {"2", "zwei", "ausbaufähig"}:              return "2"
+    if val in {"3", "drei", "mittel"}:                return "3"
+    if val in {"4", "vier", "gut"}:                   return "4"
+    if val in {"5", "fünf", "fuenf", "sehr gut"}:     return "5"
+    
+    # Backward compatibility
+    if val in {"schlecht", "rot", "r", "s", "sehr schlecht"}:          return "2"
+    if val in {"mittel", "gelb", "m", "y"}:           return "3"
+    if val in {"gut", "grün", "g"}:                   return "4"
+    
     return "nicht bewertet"
 
-EMOJI = {"schlecht":"🔴", "mittel":"🟡", "gut":"🟢", "nicht bewertet":"⚪"}
+EMOJI = {
+    "1": "🔴",         # Rot (sehr schlecht)
+    "2": "🟠",         # Orange (schlecht)
+    "3": "🟡",         # Gelb (mittel)
+    "4": "🟢",         # Grün (gut)
+    "5": "🔵",         # Blau (sehr gut)
+    "nicht bewertet": "⚪"
+}
+
+# Beschreibungen für die Bewertungen
+RATING_DESCRIPTIONS = {
+    "1": "Verbesserungswürdig",
+    "2": "Ausbaufähig",
+    "3": "Mittel",
+    "4": "Gut",
+    "5": "Sehr gut"
+}
 
 # ---------- Haupt-View ---------- #
 class VodReviewMainView(discord.ui.View):
@@ -58,19 +83,23 @@ class VodReviewMainView(discord.ui.View):
             embed.description = f"📅 Datum: {self.date}"
 
         nice = {
-            "positioning":"Positioning (P)",
-            "pot_management":"Pot Management (PM)",
-            "calling":"Calling (CL)",
-            "group_play":"Group Play (OP)",
-            "stamina_management":"Stamina Management (SM)",
-            "mechanics":"Mechanics (MC)",
+            "positioning":        "Positioning (P)",
+            "pot_management":     "Pot Management (PM)",
+            "calling":            "Calling (CL)",
+            "group_play":         "Group Play (OP)",
+            "stamina_management": "Stamina Management (SM)",
+            "mechanics":          "Mechanics (MC)",
         }
         for key, label in nice.items():
             value = self.ratings[key]
             rating = norm(value) if value else "nicht bewertet"
+            
+            # Get appropriate description
+            description = RATING_DESCRIPTIONS.get(rating, "–") if value else "–"
+            
             embed.add_field(
                 name=label,
-                value=f"{EMOJI[rating]} {rating.capitalize() if value else '–'}",
+                value=f"{EMOJI[rating]} {description}",
                 inline=True
             )
 
@@ -89,13 +118,13 @@ class VodReviewMainView(discord.ui.View):
             print(f"Error refreshing message: {e}")
 
     # ---------------- Buttons ---------------- #
-    @discord.ui.button(label="Ratings 1 ▼", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="Ratings 1 ▼ (P, PM, CL)", style=discord.ButtonStyle.secondary, row=0)
     async def ratings1(self, interaction: discord.Interaction, _):
         await interaction.response.edit_message(
             view=RatingsView(self, part=1)
         )
 
-    @discord.ui.button(label="Ratings 2 ▼", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="Ratings 2 ▼ (OP, SM, MC)", style=discord.ButtonStyle.secondary, row=0)
     async def ratings2(self, interaction: discord.Interaction, _):
         await interaction.response.edit_message(
             view=RatingsView(self, part=2)
@@ -153,17 +182,18 @@ class VodReviewMainView(discord.ui.View):
             final.add_field(name="Datum", value=f"📅 {self.date}", inline=False)
             
         names = {
-            "positioning":"Positioning (P)",
-            "pot_management":"Pot Management (PM)",
-            "calling":"Calling (CL)",
-            "group_play":"Group Play (OP)",
-            "stamina_management":"Stamina Management (SM)",
-            "mechanics":"Mechanics (MC)",
+            "positioning":        "Positioning (P)",
+            "pot_management":     "Pot Management (PM)",
+            "calling":            "Calling (CL)",
+            "group_play":         "Group Play (OP)",
+            "stamina_management": "Stamina Management (SM)",
+            "mechanics":          "Mechanics (MC)",
         }
         for k, v in self.ratings.items():
             rating = norm(v)
+            description = RATING_DESCRIPTIONS.get(rating, "–")
             final.add_field(name=names[k],
-                            value=f"{EMOJI[rating]} {rating.capitalize()}",
+                            value=f"{EMOJI[rating]} {description}",
                             inline=True)
         if self.notes:
             final.add_field(name="Notizen", value=self.notes, inline=False)
@@ -213,17 +243,49 @@ class RatingsView(discord.ui.View):
     # ---------- Select-Komponente ---------- #
     class RatingSelect(discord.ui.Select):
         def __init__(self, key: str, label: str, main_view: VodReviewMainView):
+            # Current rating value
+            current_rating = norm(main_view.ratings.get(key, ""))
+            
+            # Create 5 select options with appropriate colors
             opts = [
-                discord.SelectOption(label="🔴  Schlecht", value="schlecht",
-                                    emoji="🔴", default=main_view.ratings[key]=="schlecht"),
-                discord.SelectOption(label="🟡  Mittel",  value="mittel",
-                                    emoji="🟡", default=main_view.ratings[key]=="mittel"),
-                discord.SelectOption(label="🟢  Gut",     value="gut",
-                                    emoji="🟢", default=main_view.ratings[key]=="gut"),
+                discord.SelectOption(
+                    label="1 - Verbesserungswürdig", 
+                    value="1",
+                    emoji="🔴", 
+                    default=current_rating=="1"
+                ),
+                discord.SelectOption(
+                    label="2 - Ausbaufähig", 
+                    value="2",
+                    emoji="🟠", 
+                    default=current_rating=="2"
+                ),
+                discord.SelectOption(
+                    label="3 - Mittel", 
+                    value="3",
+                    emoji="🟡", 
+                    default=current_rating=="3"
+                ),
+                discord.SelectOption(
+                    label="4 - Gut", 
+                    value="4",
+                    emoji="🟢", 
+                    default=current_rating=="4"
+                ),
+                discord.SelectOption(
+                    label="5 - Sehr gut", 
+                    value="5",
+                    emoji="🔵", 
+                    default=current_rating=="5"
+                )
             ]
-            super().__init__(placeholder=label,
-                            options=opts,
-                            min_values=1, max_values=1)
+            
+            super().__init__(
+                placeholder=label,
+                options=opts,
+                min_values=1, 
+                max_values=1
+            )
             self.key = key
             self.main_view = main_view
 
