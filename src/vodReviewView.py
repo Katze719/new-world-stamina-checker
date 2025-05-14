@@ -79,7 +79,7 @@ class VodReviewMainView(discord.ui.View):
     async def date_button(self, interaction: discord.Interaction, _):
         class DateModal(discord.ui.Modal, title="VOD Datum"):
             date_input = discord.ui.TextInput(
-                label="Datum des VODs (z.B. YYYY-MM-DD oder TT.MM.YYYY)",
+                label="Datum des VODs",
                 placeholder="z.B. 2023-06-15 oder 15.06.2023",
                 required=False,
                 default=self.date or None
