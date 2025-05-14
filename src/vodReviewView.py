@@ -125,7 +125,7 @@ class VodReviewMainView(discord.ui.View):
 # ---------- View mit Selects (Teil 1 oder 2) ---------- #
 class RatingsView(discord.ui.View):
     def __init__(self, main: VodReviewMainView, part: int):
-        super().__init__(timeout=600)
+        super().__init__(timeout=None)
         self.main_view = main
         self.part = part
 
