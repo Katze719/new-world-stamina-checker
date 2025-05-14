@@ -108,7 +108,7 @@ class VodReviewMainView(discord.ui.View):
                 label="Datum des VODs",
                 placeholder="z.B. 2023-06-15 oder 15.06.2023",
                 required=False,
-                default=self.date or None
+                default=self.date or datetime.datetime.now().strftime("%d.%m.%Y")
             )
 
             async def on_submit(modal_self, inter: discord.Interaction):
