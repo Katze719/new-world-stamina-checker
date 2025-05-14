@@ -32,7 +32,7 @@ import io
 import matplotlib.dates as mdates
 import matplotlib.font_manager as fm
 import cv2
-
+import vodReviewView
 matplotlib.use('Agg')  # Nutzt ein nicht-interaktives Backend für Speicherung
 
 
@@ -676,9 +676,9 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
             await edit_msg(interaction, msg.id, embed)
             
             # Erstelle einen Histogramm der OOS-Ereignisse über die Zeit
+            seconds = []
             if len(timestamps) > 0:
                 # Konvertiere Timestamps in Sekunden für das Histogramm
-                seconds = []
                 for ts in timestamps:
                     parts = ts.split(":")
                     if len(parts) == 2:
@@ -2209,6 +2209,21 @@ async def abwesenheit(interaction: discord.Interaction):
     modal.fake_init(spreadsheet_acc, parse_name, spreadsheet_role_settings_manager)
     modal.add_absence_end_event = add_absence_end_event
     await interaction.response.send_modal(modal)
+
+@tree.command(name="vod_review", description="Erstelle ein VOD-Review mit Bewertung verschiedener Kategorien")
+@app_commands.describe(member="Welches Mitglied soll bewertet werden?")
+async def vod_review(inter: discord.Interaction, member: discord.Member):
+    """Startet den VOD-Review-Prozess (Selects + Modals)."""
+    view = vodReviewView.VodReviewMainView(member)
+    # Platzhalter-Embed
+    placeholder = discord.Embed(
+        title=f"VOD Review für {member.display_name}",
+        description="Noch keine Eingaben.",
+        color=discord.Color.blurple()
+    )
+    await inter.response.send_message(embed=placeholder, view=view, ephemeral=True)
+    view.message = await inter.original_response()   # Referenz speichern
+
 @tree.command(name="set_error_log_channel", description="Setze den Channel für Error Logs")
 @app_commands.checks.has_permissions(administrator=True)
 async def set_error_log_channel(interaction: discord.Interaction, channel: discord.TextChannel):
