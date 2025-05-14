@@ -2215,6 +2215,9 @@ async def abwesenheit(interaction: discord.Interaction):
 async def vod_review(inter: discord.Interaction, member: discord.Member):
     """Startet den VOD-Review-Prozess (Selects + Modals)."""
     view = vodReviewView.VodReviewMainView(member)
+    # Store bot reference in view
+    view.bot = bot
+    
     # Platzhalter-Embed
     placeholder = discord.Embed(
         title=f"VOD Review für {member.display_name}",
@@ -2223,7 +2226,10 @@ async def vod_review(inter: discord.Interaction, member: discord.Member):
     )
     # Sending as non-ephemeral message so it doesn't expire
     await inter.response.send_message(embed=placeholder, view=view, ephemeral=False)
-    view.message = await inter.original_response()   # Referenz speichern
+    message = await inter.original_response()
+    
+    # Use the new set_message method to store channel and message IDs
+    view.set_message(message)
 
 @tree.command(name="set_error_log_channel", description="Setze den Channel für Error Logs")
 @app_commands.checks.has_permissions(administrator=True)

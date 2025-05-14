@@ -14,9 +14,9 @@ EMOJI = {"schlecht":"🔴", "mittel":"🟡", "gut":"🟢", "nicht bewertet":"⚪
 # ---------- Haupt-View ---------- #
 class VodReviewMainView(discord.ui.View):
     def __init__(self, target: discord.Member):
-        super().__init__(timeout=None)
-        self.target   = target
-        self.ratings  = {
+        super().__init__(timeout=None)  # Set timeout to None for permanent views
+        self.target = target
+        self.ratings = {
             "positioning":        "",
             "pot_management":     "",
             "calling":            "",
@@ -24,19 +24,36 @@ class VodReviewMainView(discord.ui.View):
             "stamina_management": "",
             "mechanics":          "",
         }
-        self.notes    = ""
-        self.date     = ""
-        self.message: discord.Message | None = None
+        self.notes = ""
+        self.date = ""  # Added date field
+        
+        # Store channel and message IDs instead of message object
+        self.channel_id = None
+        self.message_id = None
+        
+        # For backward compatibility, we'll keep this but won't use it directly
+        self.message = None
+        
+        # Bot reference will be set after initialization
+        self.bot = None
+
+    # Method to set message reference from interaction response
+    def set_message(self, message):
+        self.message = message
+        self.channel_id = message.channel.id
+        self.message_id = message.id
 
     # -------- Embed bauen & Nachricht aktualisieren -------- #
-    async def refresh_message(self, view: discord.ui.View | None = None):
-        if not self.message:
+    async def refresh_message(self, view: discord.ui.View | None = None, bot = None):
+        if not self.channel_id or not self.message_id:
             return
+            
         embed = discord.Embed(
             title=f"VOD Review für {self.target.display_name}",
             color=discord.Color.blurple()
         )
 
+        # Add date if available
         if self.date:
             embed.description = f"📅 Datum: {self.date}"
 
@@ -60,7 +77,16 @@ class VodReviewMainView(discord.ui.View):
         if self.notes:
             embed.add_field(name="Notizen", value=self.notes, inline=False)
 
-        await self.message.edit(embed=embed, view=view or self)
+        try:
+            # Get channel by ID and then get message by ID
+            if bot:
+                channel = bot.get_channel(self.channel_id)
+                if channel:
+                    message = await channel.fetch_message(self.message_id)
+                    if message:
+                        await message.edit(embed=embed, view=view or self)
+        except Exception as e:
+            print(f"Error refreshing message: {e}")
 
     # ---------------- Buttons ---------------- #
     @discord.ui.button(label="Ratings 1 ▼", style=discord.ButtonStyle.secondary, row=0)
@@ -88,7 +114,7 @@ class VodReviewMainView(discord.ui.View):
             async def on_submit(modal_self, inter: discord.Interaction):
                 self.date = modal_self.date_input.value
                 await inter.response.defer(ephemeral=True)
-                await self.refresh_message()
+                await self.refresh_message(bot=inter.client)
 
         await interaction.response.send_modal(DateModal())
 
@@ -104,7 +130,7 @@ class VodReviewMainView(discord.ui.View):
             async def on_submit(modal_self, inter: discord.Interaction):
                 self.notes = modal_self.notes.value
                 await inter.response.defer(ephemeral=True)
-                await self.refresh_message()
+                await self.refresh_message(bot=inter.client)
 
         await interaction.response.send_modal(NotesModal())
 
@@ -122,6 +148,7 @@ class VodReviewMainView(discord.ui.View):
             color=discord.Color.green()
         )
 
+        # Add date to final review if available
         if self.date:
             final.add_field(name="Datum", value=f"📅 {self.date}", inline=False)
             
@@ -145,13 +172,21 @@ class VodReviewMainView(discord.ui.View):
         await interaction.response.send_message(embed=final)
         
         # Delete the original message with the review UI
-        if self.message:
-            await self.message.delete()
+        try:
+            # Try to delete using direct channel access
+            if self.channel_id and self.message_id:
+                channel = self.bot.get_channel(self.channel_id)
+                if channel:
+                    message = await channel.fetch_message(self.message_id)
+                    if message:
+                        await message.delete()
+        except Exception as e:
+            print(f"Error deleting message: {e}")
 
 # ---------- View mit Selects (Teil 1 oder 2) ---------- #
 class RatingsView(discord.ui.View):
     def __init__(self, main: VodReviewMainView, part: int):
-        super().__init__(timeout=None)
+        super().__init__(timeout=None)  # Set timeout to None here too
         self.main_view = main
         self.part = part
 
@@ -180,22 +215,22 @@ class RatingsView(discord.ui.View):
         def __init__(self, key: str, label: str, main_view: VodReviewMainView):
             opts = [
                 discord.SelectOption(label="🔴  Schlecht", value="schlecht",
-                                     emoji="🔴", default=main_view.ratings[key]=="schlecht"),
+                                    emoji="🔴", default=main_view.ratings[key]=="schlecht"),
                 discord.SelectOption(label="🟡  Mittel",  value="mittel",
-                                     emoji="🟡", default=main_view.ratings[key]=="mittel"),
+                                    emoji="🟡", default=main_view.ratings[key]=="mittel"),
                 discord.SelectOption(label="🟢  Gut",     value="gut",
-                                     emoji="🟢", default=main_view.ratings[key]=="gut"),
+                                    emoji="🟢", default=main_view.ratings[key]=="gut"),
             ]
             super().__init__(placeholder=label,
-                             options=opts,
-                             min_values=1, max_values=1)
+                            options=opts,
+                            min_values=1, max_values=1)
             self.key = key
             self.main_view = main_view
 
         async def callback(self, interaction: discord.Interaction):
             self.main_view.ratings[self.key] = self.values[0]
             # Embed updaten, aber in derselben View bleiben
-            await self.main_view.refresh_message(view=self.view)
+            await self.main_view.refresh_message(view=self.view, bot=interaction.client)
             await interaction.response.defer()
 
     # ---------- Zurück-Button ---------- #
