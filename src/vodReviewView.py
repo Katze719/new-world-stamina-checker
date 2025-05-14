@@ -1,4 +1,5 @@
 import discord
+import datetime
 
 # ---------- Hilfs-Utilities ---------- #
 def norm(val: str) -> str:
@@ -24,6 +25,7 @@ class VodReviewMainView(discord.ui.View):
             "mechanics":          "",
         }
         self.notes    = ""
+        self.date     = ""
         self.message: discord.Message | None = None
 
     # -------- Embed bauen & Nachricht aktualisieren -------- #
@@ -34,6 +36,9 @@ class VodReviewMainView(discord.ui.View):
             title=f"VOD Review für {self.target.display_name}",
             color=discord.Color.blurple()
         )
+
+        if self.date:
+            embed.description = f"📅 Datum: {self.date}"
 
         nice = {
             "positioning":"Positioning (P)",
@@ -70,6 +75,23 @@ class VodReviewMainView(discord.ui.View):
             view=RatingsView(self, part=2)
         )
 
+    @discord.ui.button(label="Datum 📅", style=discord.ButtonStyle.secondary, row=0)
+    async def date_button(self, interaction: discord.Interaction, _):
+        class DateModal(discord.ui.Modal, title="VOD Datum"):
+            date_input = discord.ui.TextInput(
+                label="Datum des VODs (z.B. YYYY-MM-DD oder TT.MM.YYYY)",
+                placeholder="z.B. 2023-06-15 oder 15.06.2023",
+                required=False,
+                default=self.date or None
+            )
+
+            async def on_submit(modal_self, inter: discord.Interaction):
+                self.date = modal_self.date_input.value
+                await inter.response.defer(ephemeral=True)
+                await self.refresh_message()
+
+        await interaction.response.send_modal(DateModal())
+
     @discord.ui.button(label="Notizen 📝", style=discord.ButtonStyle.secondary, row=0)
     async def notes_button(self, interaction: discord.Interaction, _):
         class NotesModal(discord.ui.Modal, title="Notizen"):
@@ -99,6 +121,10 @@ class VodReviewMainView(discord.ui.View):
             description=f"Review erstellt von {interaction.user.display_name}",
             color=discord.Color.green()
         )
+
+        if self.date:
+            final.add_field(name="Datum", value=f"📅 {self.date}", inline=False)
+            
         names = {
             "positioning":"Positioning (P)",
             "pot_management":"Pot Management (PM)",
