@@ -23,7 +23,7 @@ EMOJI = {
     "2": "🟠",         # Orange (schlecht)
     "3": "🟡",         # Gelb (mittel)
     "4": "🟢",         # Grün (gut)
-    "5": "🔵",         # Blau (sehr gut)
+    "5": "💯",         # Blau (sehr gut)
     "nicht bewertet": "⚪"
 }
 
@@ -275,7 +275,7 @@ class RatingsView(discord.ui.View):
                 discord.SelectOption(
                     label="5 - Sehr gut", 
                     value="5",
-                    emoji="🔵", 
+                    emoji="💯", 
                     default=current_rating=="5"
                 )
             ]
