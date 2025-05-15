@@ -24,7 +24,7 @@ def find_free_cell_in_column(column: list):
             return i + 1 + OFFSET
     return len(column) + 1 + OFFSET
 
-AUSNAHMEN = ["Lady Lilian"]
+AUSNAHMEN = ["Gernhart Reinda"]
 
 async def _update_member(client: gspread_asyncio.AsyncioGspreadClientManager, member: discord.Member, parse_display_name: callable, spread_settings: jsonFileManager.JsonFileManager):
 
