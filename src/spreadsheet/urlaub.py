@@ -114,6 +114,7 @@ class UrlaubsModal(discord.ui.Modal, title="Abwesenheit eintragen"):
         self.P_parse_display_name = parse_display_name
         self.P_spread_settings = spread_settings
         self.add_absence_end_event = None  # This will be set by the bot to provide the event scheduler function
+        self.add_absence_start_event = None  # This will be set by the bot to provide the start event scheduler function
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
@@ -123,32 +124,35 @@ class UrlaubsModal(discord.ui.Modal, title="Abwesenheit eintragen"):
                 await interaction.response.send_message("Das Startdatum darf nicht nach dem Enddatum liegen!", ephemeral=True)
                 return
             
-            await interaction.response.send_message(f"Abwesenehit eingetragen von {start_date} bis {end_date}! Dieser Channel wurde automatisch mit einem 🔴 markiert.")
+            await interaction.response.send_message(f"Abwesenheit eingetragen von {start_date} bis {end_date}! Die notwendigen Kennzeichnungen werden automatisch zum Beginn deiner Abwesenheit aktiviert. Und sendet eine Nachricht zum Beginn und Ende deiner Abwesenheit. Dies kann eventuell bis zu 30 Minuten dauern.")
             await _abwesenheit(self.P_client, interaction, self.P_parse_display_name, self.P_spread_settings, f"{start_date} - {end_date} {self.grund.value}")
             
-            # Add red circle to channel name
-            await interaction.channel.edit(name=f"🔴-{interaction.channel.name}")
-            
-            # Assign absence role if configured
-            role_settings = await self.P_spread_settings.load()
-            if "abwesenheits_role" in role_settings:
-                absence_role_id = role_settings["abwesenheits_role"]
-                absence_role = interaction.guild.get_role(absence_role_id)
-                if absence_role:
-                    await interaction.user.add_roles(absence_role, reason="Abwesenheit gemeldet")
-                    print(f"Assigned absence role to {interaction.user.display_name}")
-            
-            # Schedule an event to remove the red circle at the end of the absence period
-            if self.add_absence_end_event:
+            # Schedule events for the beginning and end of the absence period
+            if self.add_absence_start_event and self.add_absence_end_event:
+                # Convert start_date to datetime with time set to start of day (00:00:00)
+                start_datetime = datetime.datetime.combine(
+                    start_date, 
+                    datetime.time(0, 0, 0),
+                    tzinfo=datetime.timezone.utc
+                )
+                
                 # Convert end_date to datetime with time set to end of day (23:59:59)
                 end_datetime = datetime.datetime.combine(
                     end_date, 
                     datetime.time(23, 59, 59),
                     tzinfo=datetime.timezone.utc
                 )
-                                
-                # Schedule the event
-                event_id = await self.add_absence_end_event(
+                
+                # Schedule start event
+                start_event_id = await self.add_absence_start_event(
+                    user_id=str(interaction.user.id),
+                    username=interaction.user.display_name,
+                    channel_id=str(interaction.channel.id),
+                    start_date=start_datetime
+                )
+                
+                # Schedule end event
+                end_event_id = await self.add_absence_end_event(
                     user_id=str(interaction.user.id),
                     username=interaction.user.display_name,
                     channel_id=str(interaction.channel.id),
@@ -156,7 +160,8 @@ class UrlaubsModal(discord.ui.Modal, title="Abwesenheit eintragen"):
                 )
                 
                 # Log event creation
-                print(f"Created event to remove absence indicator for {interaction.user.display_name} " 
-                     f"in channel {interaction.channel.name} on {end_datetime.isoformat()} (Event ID: {event_id})")
+                print(f"Created events for absence of {interaction.user.display_name} " 
+                     f"in channel {interaction.channel.name} from {start_datetime.isoformat()} to {end_datetime.isoformat()} "
+                     f"(Start Event ID: {start_event_id}, End Event ID: {end_event_id})")
         except ValueError:
             await interaction.response.send_message("Bitte gib die Daten im Format YYYY-MM-DD ein.", ephemeral=True) 

@@ -86,6 +86,7 @@ MAX_LEVEL = 100
 # Event Types
 class EventType:
     REMOVE_ABSENCE_INDICATOR = "remove_absence_indicator"
+    START_ABSENCE_INDICATOR = "start_absence_indicator"
     # Add more event types here as needed
 
 # Event management functions
@@ -131,6 +132,17 @@ async def add_absence_end_event(user_id, username, channel_id, end_date):
     }
     
     return await add_event(EventType.REMOVE_ABSENCE_INDICATOR, execution_date, context)
+
+async def add_absence_start_event(user_id, username, channel_id, start_date):
+    """Add an event to add the absence indicator when the absence period starts."""
+    execution_date = start_date.isoformat()
+    context = {
+        "user_id": user_id,
+        "username": username,
+        "channel_id": channel_id
+    }
+    
+    return await add_event(EventType.START_ABSENCE_INDICATOR, execution_date, context)
 
 # Event processing functions
 async def process_remove_absence_indicator(event):
@@ -185,6 +197,58 @@ async def process_remove_absence_indicator(event):
     
     return False
 
+async def process_start_absence_indicator(event):
+    """Process an event to add the absence indicator to a channel name."""
+    context = event.get("context", {})
+    channel_id = context.get("channel_id")
+    user_id = context.get("user_id")
+    username = context.get("username")
+    
+    if not channel_id:
+        log.error(f"Missing channel_id in event context: {event}")
+        return False
+    
+    channel = bot.get_channel(int(channel_id))
+    if not channel:
+        log.error(f"Channel not found for ID: {channel_id}")
+        return False
+    
+    # Add red circle to channel name if not already present
+    if '🔴' not in channel.name:
+        try:
+            new_name = f"🔴-{channel.name}"
+            await channel.edit(name=new_name)
+            log.info(f"Added absence indicator to channel {channel.name} for user {username}")
+            
+            # Assign absence role if configured
+            if user_id:
+                guild = channel.guild
+                member = guild.get_member(int(user_id))
+                if member:
+                    try:
+                        # Add absence role if configured
+                        roles_settings = await spreadsheet_role_settings_manager.load()
+                        if "abwesenheits_role" in roles_settings:
+                            absence_role_id = roles_settings["abwesenheits_role"]
+                            absence_role = guild.get_role(absence_role_id)
+                            if absence_role and absence_role not in member.roles:
+                                await member.add_roles(absence_role, reason="Abwesenheit begonnen")
+                                log.info(f"Added absence role to {username}")
+                        
+                        await channel.send(f"{member.mention} Deine Abwesenheit hat jetzt begonnen.")
+                    except discord.HTTPException:
+                        log.error(f"Failed to send absence start message to {username}")
+            
+            return True
+        except discord.Forbidden:
+            log.error(f"Bot lacks permission to edit channel {channel.name}")
+        except discord.HTTPException as e:
+            log.error(f"HTTP error editing channel {channel.name}: {str(e)}")
+    else:
+        log.info(f"Absence indicator already exists in channel {channel.name}")
+    
+    return False
+
 # Main event processor
 async def process_event(event):
     """Process a single event based on its type."""
@@ -192,6 +256,8 @@ async def process_event(event):
     
     if event_type == EventType.REMOVE_ABSENCE_INDICATOR:
         return await process_remove_absence_indicator(event)
+    elif event_type == EventType.START_ABSENCE_INDICATOR:
+        return await process_start_absence_indicator(event)
     
     # Add more event type handlers here
     
@@ -2205,9 +2271,10 @@ async def abwesenheit(interaction: discord.Interaction):
                 
             return member.display_name
     
-    # Add event management function to the modal for absence end handling
+    # Add event management functions to the modal for absence handling
     modal.fake_init(spreadsheet_acc, parse_name, spreadsheet_role_settings_manager)
     modal.add_absence_end_event = add_absence_end_event
+    modal.add_absence_start_event = add_absence_start_event
     await interaction.response.send_modal(modal)
 
 @tree.command(name="vod_review", description="Erstelle ein VOD-Review mit Bewertung verschiedener Kategorien")
