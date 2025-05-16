@@ -3999,16 +3999,7 @@ async def list_events(interaction: discord.Interaction):
             except ValueError:
                 execution_date_display = execution_date_str
             
-            # Format context for display
-            if event_type == EventType.REMOVE_ABSENCE_INDICATOR:
-                username = context.get("username", "Unbekannt")
-                channel_id = context.get("channel_id", "Unbekannt")
-                channel = bot.get_channel(int(channel_id)) if channel_id and channel_id != "Unbekannt" else None
-                channel_name = channel.name if channel else f"Kanal-ID: {channel_id}"
-                
-                context_display = f"Nutzer: {username}\nKanal: {channel_name}"
-            else:
-                context_display = str(context)
+            context_display = str(context)
             
             embed.add_field(
                 name=f"{i+1}. {event_type_display} (ID: {event_id[:8]}...)",
