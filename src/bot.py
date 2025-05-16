@@ -3971,9 +3971,7 @@ async def list_events(interaction: discord.Interaction):
             context = event.get("context", {})
             
             # Format the event type for display
-            event_type_display = {
-                EventType.REMOVE_ABSENCE_INDICATOR: "Abwesenheitsende"
-            }.get(event_type, event_type)
+            event_type_display = {}.get(event_type, event_type)
             
             # Try to format the execution date
             try:
