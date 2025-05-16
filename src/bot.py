@@ -34,6 +34,7 @@ import matplotlib.font_manager as fm
 import cv2
 import vodReviewView
 matplotlib.use('Agg')  # Nutzt ein nicht-interaktives Backend für Speicherung
+import functools
 
 
 DISCORD_TOKEN = os.getenv("BOT_TOKEN")
@@ -69,6 +70,7 @@ GP_CHANNEL_IDS_FILE = "./gp_channel_ids.json"
 SPREADSHEET_ROLE_SETTINGS_PATH = "./spreadsheet_role_settings.json"
 WRITTEN_RAIDHELPERS_FILE = "./written_raidhelpers.json"
 EVENTS_FILE_PATH = "./scheduled_events.json"
+USER_CHANNEL_LINKS_FILE = "./user_channel_links.json"
 
 vod_channel_manager = jsonFileManager.JsonFileManager(VOD_CHANNELS_FILE_PATH, ensure_hidden_attribute)
 settings_manager = jsonFileManager.JsonFileManager(ROLE_NAME_UPDATE_SETTINGS_PATH)
@@ -76,6 +78,7 @@ gp_channel_manager = jsonFileManager.JsonFileManager(GP_CHANNEL_IDS_FILE)
 spreadsheet_role_settings_manager = jsonFileManager.JsonFileManager(SPREADSHEET_ROLE_SETTINGS_PATH)
 written_raidhelpers_manager = jsonFileManager.JsonFileManager(WRITTEN_RAIDHELPERS_FILE)
 events_manager = jsonFileManager.JsonFileManager(EVENTS_FILE_PATH)
+user_channel_links_manager = jsonFileManager.JsonFileManager(USER_CHANNEL_LINKS_FILE)
 
 # Initialize SQLite database for level system
 DB_PATH = "./level_system.db"
@@ -2240,7 +2243,56 @@ async def remove_channel_raidhelper_war(interaction: discord.Interaction):
     await gp_channel_manager.save(channels)
     await interaction.response.send_message(f"Raidhelper Channel Removed", ephemeral=True)
 
+# Decorator to ensure commands are run in a linked channel
+def require_linked_channel():
+    """
+    Decorator that checks if the command is being executed in a channel linked to the executing user.
+    Usage:
+        @tree.command(...)
+        @require_linked_channel()
+        async def some_command(interaction: discord.Interaction):
+            ...
+    """
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(interaction: discord.Interaction, *args, **kwargs):
+            # Get current channel ID and user ID
+            channel_id = str(interaction.channel.id)
+            user_id = str(interaction.user.id)
+            
+            # Load user-channel links
+            links = await user_channel_links_manager.load() or {}
+            
+            # Check if the channel is linked to any user
+            if channel_id not in links:
+                await interaction.response.send_message(
+                    "❌ Dieser Befehl kann nur in einem verknüpften Ticket-Channel verwendet werden. "
+                    "Dieser Channel ist mit keinem Benutzer verknüpft.",
+                    ephemeral=True
+                )
+                return
+            
+            # Check if the channel is linked to the executing user
+            linked_user_id = links[channel_id]
+            if linked_user_id != user_id:
+                linked_user = interaction.guild.get_member(int(linked_user_id))
+                linked_user_name = linked_user.display_name if linked_user else f"Benutzer (ID: {linked_user_id})"
+                
+                await interaction.response.send_message(
+                    f"❌ Dieser Befehl kann nur vom verknüpften Benutzer verwendet werden. "
+                    f"Dieser Channel ist mit {linked_user_name} verknüpft.",
+                    ephemeral=True
+                )
+                return
+            
+            # If everything is fine, execute the command
+            return await func(interaction, *args, **kwargs)
+        
+        return wrapper
+    return decorator
+
 @tree.command(name="abwesenheit", description="Teile uns mit wann du Abwesend bist")
+@require_linked_channel()
 async def abwesenheit(interaction: discord.Interaction):
     modal = spreadsheet.urlaub.UrlaubsModal()
 
@@ -4632,6 +4684,13 @@ async def abwesenheit_hilfe(interaction: discord.Interaction):
         inline=False
     )
     
+    # Neue Information zur Channel-Beschränkung
+    embed.add_field(
+        name="⚠️ Wichtiger Hinweis",
+        value="Der Befehl kann nur in deinem verknüpften Ticket-Channel ausgeführt werden.",
+        inline=False
+    )
+    
     # Footer mit minimalen restlichen Infos
     embed.set_footer(text="Dein Kanal erhält eine 🔴-Markierung • Bei Fragen wende dich an einen Konsul")
     
@@ -4732,6 +4791,143 @@ async def remove_abwesenheits_role(interaction: discord.Interaction):
         await interaction.response.send_message(f"Abwesenheits-Rolle wurde erfolgreich entfernt!", ephemeral=True)
     else:
         await interaction.response.send_message(f"Es ist keine Abwesenheits-Rolle gesetzt!", ephemeral=True)
+
+@tree.command(name="link", description="Verknüpft einen Benutzer mit dem aktuellen Kanal")
+async def link_user_channel(interaction: discord.Interaction, user: discord.Member):
+    """Verknüpft einen Benutzer mit dem aktuellen Kanal, nützlich für Ticket-Tracking."""
+    channel_id = str(interaction.channel.id)
+    user_id = str(user.id)
+    
+    # Lade bestehende Verknüpfungen
+    links = await user_channel_links_manager.load() or {}
+    
+    # Prüfe, ob der Kanal bereits mit jemandem verknüpft ist
+    if channel_id in links:
+        existing_user_id = links[channel_id]
+        existing_user = interaction.guild.get_member(int(existing_user_id))
+        existing_user_name = existing_user.display_name if existing_user else f"User (ID: {existing_user_id})"
+        
+        await interaction.response.send_message(
+            f"⚠️ Dieser Kanal ist bereits mit {existing_user_name} verknüpft.\n"
+            f"Nutze `/unlink` um die bestehende Verknüpfung zu entfernen.",
+            ephemeral=True
+        )
+        return
+    
+    # Speichere die neue Verknüpfung
+    links[channel_id] = user_id
+    await user_channel_links_manager.save(links)
+    
+    # Erstelle Embed für die Bestätigung
+    embed = discord.Embed(
+        title="✅ Verknüpfung erstellt",
+        description=f"Benutzer {user.mention} wurde mit diesem Kanal verknüpft.",
+        color=discord.Color.green()
+    )
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@tree.command(name="unlink", description="Entfernt die Verknüpfung zwischen einem Benutzer und dem aktuellen Kanal")
+async def unlink_user_channel(interaction: discord.Interaction):
+    """Entfernt die Verknüpfung zwischen einem Benutzer und dem aktuellen Kanal."""
+    channel_id = str(interaction.channel.id)
+    
+    # Lade bestehende Verknüpfungen
+    links = await user_channel_links_manager.load() or {}
+    
+    # Prüfe, ob der Kanal verknüpft ist
+    if channel_id not in links:
+        await interaction.response.send_message(
+            "❌ Dieser Kanal ist mit keinem Benutzer verknüpft.",
+            ephemeral=True
+        )
+        return
+    
+    # Entferne die Verknüpfung
+    user_id = links[channel_id]
+    del links[channel_id]
+    await user_channel_links_manager.save(links)
+    
+    # Finde den Benutzer, falls möglich
+    user = interaction.guild.get_member(int(user_id))
+    user_mention = user.mention if user else f"Benutzer (ID: {user_id})"
+    
+    # Erstelle Embed für die Bestätigung
+    embed = discord.Embed(
+        title="🔓 Verknüpfung entfernt",
+        description=f"Die Verknüpfung von {user_mention} mit diesem Kanal wurde aufgehoben.",
+        color=discord.Color.blue()
+    )
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@tree.command(name="list_links", description="Zeigt alle Benutzer-Kanal-Verknüpfungen an")
+@app_commands.checks.has_permissions(administrator=True)
+async def list_user_channel_links(interaction: discord.Interaction):
+    """Zeigt alle Benutzer-Kanal-Verknüpfungen an (nur für Administratoren)."""
+    # Lade bestehende Verknüpfungen
+    links = await user_channel_links_manager.load() or {}
+    
+    if not links:
+        await interaction.response.send_message(
+            "Keine Benutzer-Kanal-Verknüpfungen vorhanden.",
+            ephemeral=True
+        )
+        return
+    
+    # Erstelle Embed für die Liste
+    embed = discord.Embed(
+        title="🔗 Benutzer-Kanal-Verknüpfungen",
+        description=f"Insgesamt {len(links)} Verknüpfungen:",
+        color=discord.Color.gold()
+    )
+    
+    # Füge alle Verknüpfungen hinzu
+    for channel_id, user_id in links.items():
+        # Versuche, Kanal und Benutzer zu finden
+        channel = interaction.guild.get_channel(int(channel_id))
+        user = interaction.guild.get_member(int(user_id))
+        
+        channel_name = f"#{channel.name}" if channel else f"Kanal (ID: {channel_id})"
+        user_name = user.display_name if user else f"Benutzer (ID: {user_id})"
+        
+        embed.add_field(
+            name=channel_name,
+            value=user_name,
+            inline=True
+        )
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@tree.command(name="get_user_for_channel", description="Zeigt den mit diesem Kanal verknüpften Benutzer an")
+async def get_user_for_channel(interaction: discord.Interaction):
+    """Zeigt den mit dem aktuellen Kanal verknüpften Benutzer an."""
+    channel_id = str(interaction.channel.id)
+    
+    # Lade bestehende Verknüpfungen
+    links = await user_channel_links_manager.load() or {}
+    
+    # Prüfe, ob der Kanal verknüpft ist
+    if channel_id not in links:
+        await interaction.response.send_message(
+            "❌ Dieser Kanal ist mit keinem Benutzer verknüpft.",
+            ephemeral=True
+        )
+        return
+    
+    # Finde den Benutzer
+    user_id = links[channel_id]
+    user = interaction.guild.get_member(int(user_id))
+    user_mention = user.mention if user else f"Benutzer (ID: {user_id})"
+    
+    # Erstelle Embed für die Antwort
+    embed = discord.Embed(
+        title="🔗 Kanal-Verknüpfung",
+        description=f"Dieser Kanal ist mit {user_mention} verknüpft.",
+        color=discord.Color.blue()
+    )
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 bot.run(DISCORD_TOKEN)
 
