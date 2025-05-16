@@ -4697,6 +4697,7 @@ async def abwesenheit_hilfe(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed)
 
 @tree.command(name="urlaub_status", description="Zeigt an, wie viele Nutzer aktuell im Urlaub sind")
+@app_commands.checks.has_permissions(administrator=True)
 async def urlaub_status(interaction: discord.Interaction):
     """Show how many users are currently on vacation based on the events file"""
     await interaction.response.defer()
