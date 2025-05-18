@@ -35,6 +35,9 @@ import cv2
 import vodReviewView
 matplotlib.use('Agg')  # Nutzt ein nicht-interaktives Backend für Speicherung
 import functools
+import gspread
+import gspread.exceptions
+import traceback
 
 
 DISCORD_TOKEN = os.getenv("BOT_TOKEN")
@@ -1562,6 +1565,58 @@ async def on_member_update(before, after: discord.Member):
     await update_member_nickname(after)
     await update_member_in_spreadsheet(after)
     await spreadsheet.memberlist.sort_member(spreadsheet_acc, spreadsheet_role_settings_manager)
+    
+    # Check if member got a company role
+    if before.roles != after.roles:
+        # Member's roles changed, check if they got a company role
+        spreadsheet_role_settings = await spreadsheet_role_settings_manager.load()
+        
+        # Check if member has any company role now
+        has_company_role_after = False
+        for role in after.roles:
+            if str(role.id) in spreadsheet_role_settings.get("company_role", {}):
+                has_company_role_after = True
+                break
+                
+        # Check if member had any company role before
+        had_company_role_before = False
+        for role in before.roles:
+            if str(role.id) in spreadsheet_role_settings.get("company_role", {}):
+                had_company_role_before = True
+                break
+                
+        # If they got a company role for the first time or changed company roles
+        if has_company_role_after and (not had_company_role_before or before.roles != after.roles):
+            def parse_name(member : discord.Member):
+                pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
+                regex = pattern_to_regex(pattern)
+                match = regex.match(member.display_name)
+                if match:
+                    try:
+                        return match.group("name").strip()
+                    except (IndexError, KeyError):
+                        return member.display_name
+                else:
+                    # Fallback: Versuche es mit dem alten Pattern ohne Level
+                    old_pattern = "{name} [{icons}]"
+                    old_regex = pattern_to_regex(old_pattern)
+                    old_match = old_regex.match(member.display_name)
+                    if old_match:
+                        try:
+                            return old_match.group("name").strip()
+                        except (IndexError, KeyError):
+                            pass
+                    
+                    # Einfacher Fallback: Suche nach Name vor eckigen Klammern
+                    bracket_match = re.match(r'^(.*?)\s*\[.*\]$', member.display_name)
+                    if bracket_match:
+                        return bracket_match.group(1).strip()
+                        
+                    return member.display_name
+            
+            # Add member to payoutlist
+            await spreadsheet.payoutlist.add_member_to_payoutlist(bot, spreadsheet_acc, after, parse_name, spreadsheet_role_settings_manager)
+            log.info(f"Member {after.display_name} got a company role - added to payoutlist")
 
 @tree.command(name="set_role", description="Setze Icon und/oder Priorität für eine Rolle")
 @app_commands.describe(
@@ -4265,6 +4320,12 @@ async def help_command(interaction: discord.Interaction, category: Optional[str]
                     "description": "Entfernt die Einstellung für die Abwesenheits-Rolle.",
                     "example": "/remove_abwesenheits_role",
                     "admin_only": True
+                },
+                {
+                    "name": "/cleanup_payoutlist",
+                    "description": "Entfernt Mitglieder aus der Payoutliste, die nicht mehr im Server oder in der Kompanie sind.",
+                    "example": "/cleanup_payoutlist",
+                    "admin_only": True
                 }
             ]
         },
@@ -4918,6 +4979,124 @@ async def get_user_for_channel(interaction: discord.Interaction):
     )
     
     await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@tree.command(name="cleanup_payoutlist", description="Entfernt Mitglieder aus der Payoutliste, die nicht mehr im Server oder in der Kompanie sind")
+@app_commands.checks.has_permissions(administrator=True)
+async def cleanup_payoutlist_command(interaction: discord.Interaction):
+    """Admin command to manually clean up the payoutlist by removing members no longer in server/company"""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        # Load settings
+        spreadsheet_role_settings = await spreadsheet_role_settings_manager.load()
+        
+        # Get all members with company roles
+        discord_members = []
+        discord_members_with_company = []
+        
+        for member in interaction.guild.members:
+            # Check if member has a company role
+            has_company_role = False
+            company = None
+            
+            for role in member.roles:
+                if str(role.id) in spreadsheet_role_settings.get("company_role", {}):
+                    has_company_role = True
+                    company = spreadsheet_role_settings["company_role"][str(role.id)]
+                    break
+            
+            if has_company_role:
+                # Parse name
+                def parse_name(member):
+                    pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
+                    regex = pattern_to_regex(pattern)
+                    match = regex.match(member.display_name)
+                    if match:
+                        try:
+                            return match.group("name").strip()
+                        except (IndexError, KeyError):
+                            return member.display_name
+                    else:
+                        # Fallback: Try with old pattern without level
+                        old_pattern = "{name} [{icons}]"
+                        old_regex = pattern_to_regex(old_pattern)
+                        old_match = old_regex.match(member.display_name)
+                        if old_match:
+                            try:
+                                return old_match.group("name").strip()
+                            except (IndexError, KeyError):
+                                pass
+                        
+                        # Simple fallback: search for name before square brackets
+                        bracket_match = re.match(r'^(.*?)\s*\[.*\]$', member.display_name)
+                        if bracket_match:
+                            return bracket_match.group(1).strip()
+                            
+                        return member.display_name
+                
+                # Get clean username
+                username = parse_name(member)
+                username_no_spaces = username.split(" | ")[0]
+                username_no_spaces = username_no_spaces.split(" I ")[0]
+                username_no_spaces = username_no_spaces.replace("🏮 ", "").replace("🏮", "")
+                
+                discord_members.append(username)
+                discord_members_with_company.append((username, company))
+        
+        # Access spreadsheet
+        auth = await spreadsheet_acc.authorize()
+        
+        # Get current month and year
+        now = datetime.datetime.now()
+        current_month = now.strftime("%B")
+        current_year = now.strftime("%Y")
+        
+        # Open spreadsheet
+        worksheet = await auth.open(spreadsheet_role_settings["document_id"])
+        
+        try:
+            sheet = await worksheet.worksheet(f"Payoutliste {current_month} {current_year}")
+        except gspread.exceptions.WorksheetNotFound:
+            await interaction.followup.send(f"Die Payoutliste für {current_month} {current_year} existiert noch nicht.", ephemeral=True)
+            return
+        
+        # Get the current payoutlist members
+        name_col = await sheet.get_values("F1:F300", major_dimension="COLUMNS")
+        name_col = name_col[0]
+        name_col = name_col[spreadsheet.payoutlist.COLUMN_START_OFFSET:]
+        
+        # Find members to remove
+        members_to_remove = []
+        for i, name in enumerate(name_col):
+            if name and name not in discord_members:
+                row = i + 1 + spreadsheet.payoutlist.COLUMN_START_OFFSET
+                members_to_remove.append((name, row))
+        
+        if not members_to_remove:
+            await interaction.followup.send("Keine Mitglieder zum Entfernen gefunden. Die Payoutliste ist aktuell.", ephemeral=True)
+            return
+        
+        # Clear rows for removed members
+        batch_clear = []
+        for name, row in members_to_remove:
+            batch_clear.append(f"A{row}:AAA{row}")
+        
+        await sheet.batch_clear(batch_clear)
+        
+        # Send confirmation
+        await interaction.followup.send(
+            f"✅ {len(members_to_remove)} Mitglieder wurden aus der Payoutliste entfernt:\n" +
+            "\n".join([f"• {name}" for name, _ in members_to_remove[:10]]) +
+            (f"\n... und {len(members_to_remove) - 10} weitere." if len(members_to_remove) > 10 else ""),
+            ephemeral=True
+        )
+        
+        log.info(f"Admin {interaction.user.display_name} manually cleaned up payoutlist, removed {len(members_to_remove)} members")
+        
+    except Exception as e:
+        log.error(f"Error in cleanup_payoutlist command: {str(e)}")
+        log.error(traceback.format_exc())
+        await interaction.followup.send(f"⚠️ Fehler beim Bereinigen der Payoutliste: {str(e)}", ephemeral=True)
 
 bot.run(DISCORD_TOKEN)
 
