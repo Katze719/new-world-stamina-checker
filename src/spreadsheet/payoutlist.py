@@ -497,7 +497,9 @@ async def add_member_to_payoutlist(bot: discord.Client, client: gspread_asyncio.
             if username in A_col:
                 # Already in sheet, update company if needed
                 row = A_col.index(username) + 1 + COLUMN_START_OFFSET
-                current_company = await sheet.cell(row, 5).value
+                # Get the cell object first, then access its value
+                cell = await sheet.cell(row, 5)
+                current_company = cell.value
                 
                 if current_company != company:
                     await sheet.update_cell(row, 5, company)
