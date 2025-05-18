@@ -48,6 +48,97 @@ def find_free_cell_in_row(row: list):
             return i + 1 + ROW_START_OFFSET
     return len(row) + 1 + ROW_START_OFFSET
 
+async def extract_raidhelper_data(message, event_type="Event"):
+    """Extract data from a Raidhelper message embed"""
+    if not message.embeds:
+        return None, None
+        
+    embed = message.embeds[0]
+    if not embed.fields:
+        return None, None
+        
+    embed_field_value = embed.fields[0].value
+    match = re.search(r"<t:(\d+):", embed_field_value)
+    if not match:
+        return None, None
+        
+    timestamp = int(match.group(1))
+    # Convert timestamp to datetime (UTC)
+    dt = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc)
+    now = datetime.datetime.now(tz=datetime.timezone.utc)
+    
+    if now <= dt:
+        # Event hasn't happened yet
+        return None, None
+        
+    # Extract usernames from Raidhelper API
+    raidhelper_usernames = []
+    for field in embed.fields:
+        match = re.search(r'\[Web View\]\((https://raid-helper\.dev/event/(\d+))\)', field.value)
+        if match:
+            event_id = match.group(2)
+            api_url = f"https://raid-helper.dev/api/v2/events/{event_id}"
+            response = requests.get(api_url)
+            json_data = response.json()
+            for signup in json_data["signUps"]:
+                raidhelper_usernames.append(signup["name"])
+    
+    return raidhelper_usernames, dt
+
+async def process_raidhelper_for_payoutlist(sheet, discord_member_list, discord_member_list_orig_names, raidhelper_usernames, event_time, event_type):
+    """Process extracted Raidhelper data and update the payoutlist"""
+    if not raidhelper_usernames:
+        return False
+    
+    # Get next free column for event
+    events = await sheet.get_values("J3:AAA3", major_dimension="ROWS")
+    events = events[0]
+    column_event = find_free_cell_in_row(events)
+    
+    # Add event columns
+    await sheet.update_cell(3, column_event, "Raidhelper")
+    await sheet.update_cell(4, column_event, f"{event_type} {event_time.strftime('%d.%m.')}")
+    
+    # Get the column A with member names
+    A_col = await sheet.get_values("F1:F300", major_dimension="COLUMNS")
+    A_col = A_col[0]
+    A_col = A_col[COLUMN_START_OFFSET:]
+    
+    # Mark attendees in the payoutlist
+    for i, member in enumerate(discord_member_list):
+        discord_username, company = member
+        discord_username_origin = discord_member_list_orig_names[i][0]
+        row = find_free_cell_in_column(A_col)
+        
+        if any(discord_username in username for username in raidhelper_usernames):
+            if discord_username_origin in A_col:
+                row = A_col.index(discord_username_origin)
+                await sheet.update_cell(row + 1 + COLUMN_START_OFFSET, column_event, "1")
+            else:  
+                await sheet.update_cell(row, column_event, "1")
+                
+        if discord_username_origin not in A_col:
+            name_update = []
+            name_update.append({
+                'range': f"{Column.NAME.value}{row}",
+                'values': [[discord_username_origin]]
+            })
+            await sheet.batch_update(name_update, value_input_option=gspread.utils.ValueInputOption.raw)
+            # stats
+            await sheet.update_cell(row, 1, f'=(ZÄHLENWENNS($J$4:$AAA$4; "*Push*";$J$3:$AAA$3;"*Teilnehmer*";J{row}:AAA{row}; ">0") + ZÄHLENWENNS($J$4:$AAA$4; "*Push*";$J$3:$AAA$3;"*Teilnehmer*";J{row}:AAA{row}; "x"))/$A$5')
+            await sheet.update_cell(row, 2, f'=(ZÄHLENWENNS($J$4:$AAA$4; "*Krieg*";$J$3:$AAA$3;"*Teilnehmer*";J{row}:AAA{row}; ">0") + ZÄHLENWENNS($J$4:$AAA$4; "*Krieg*";$J$3:$AAA$3;"*Teilnehmer*";J{row}:AAA{row}; "x"))/$B$5')
+            await sheet.update_cell(row, 3, f'=(ZÄHLENWENNS($J$3:$AAA$3;"*Raidhelper*";J{row}:AAA{row}; ">0") + ZÄHLENWENNS($J$3:$AAA$3;"*Raidhelper*";J{row}:AAA{row}; "x"))/$C$5')
+            await sheet.update_cell(row, 4, f'=(ZÄHLENWENNS($J$3:$AAA$3;"*VOD*";J{row}:AAA{row}; ">0") + ZÄHLENWENNS($J$3:$AAA$3;"*VOD*";J{row}:AAA{row}; "x"))/$D$5')
+            await sheet.update_cell(row, 5, company)
+            await sheet.update_cell(row, 7, f'=SUMME(I{row}:AAA{row})')
+            await sheet.update_cell(row, 8, f'=G{row}*$H$3')
+            
+            if row - 1 - COLUMN_START_OFFSET < len(A_col):
+                A_col[row - 1 - COLUMN_START_OFFSET] = discord_username_origin
+            else:
+                A_col.append(discord_username_origin)
+    
+    return True
 
 async def _update_payoutlist(bot: discord.Client, client: gspread_asyncio.AsyncioGspreadClientManager, parse_display_name: callable, spread_settings: jsonFileManager.JsonFileManager, gp_channel_manager: jsonFileManager.JsonFileManager):
     """
@@ -142,7 +233,6 @@ async def _update_payoutlist(bot: discord.Client, client: gspread_asyncio.Asynci
                 row = A_col.index(member) + 1 + COLUMN_START_OFFSET
                 await sheet.batch_clear([f"A{row}:AAA{row}"])
 
-
     # Check for new members with company roles and add them to the payoutlist
     await add_new_members_to_payoutlist(sheet, discord_memeber_list_orig_names)
     
@@ -154,81 +244,127 @@ async def _update_payoutlist(bot: discord.Client, client: gspread_asyncio.Asynci
 
     for channel, type in [(channel_race, "Push"), (channel_war, "Krieg")]:
         async for message in channel.history(limit=100):
-            raidhelper_usernames = []
-            column_event = None
-            if message.embeds:
-                embed = message.embeds[0]
-                if embed.fields:
-                    # print(embed.fields[0].value)
-                    embed_field_value = embed.fields[0].value
-                    match = re.search(r"<t:(\d+):", embed_field_value)
-                    if match:
-                        timestamp = int(match.group(1))
-                        # Konvertiere den Timestamp in ein datetime-Objekt (UTC)
-                        dt = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc)
-                        now = datetime.datetime.now(tz=datetime.timezone.utc)
-                        
-                        if now > dt:
-                            if message.id not in data["raidhelper_message_ids"]:
-                                data["raidhelper_message_ids"].append(message.id)
-
-                                # read usernames and save in list
-                                for field in embed.fields:
-                                    match = re.search(r'\[Web View\]\((https://raid-helper\.dev/event/(\d+))\)', field.value)
-                                    if match:
-                                        event_id = match.group(2)
-                                        api_url = f"https://raid-helper.dev/api/v2/events/{event_id}"
-                                        response = requests.get(api_url)
-                                        json_data = response.json()
-                                        for signup in json_data["signUps"]:
-                                            raidhelper_usernames.append(signup["name"])
-
-                                log.info("Updating payout list")
-                                events = await sheet.get_values("J3:AAA3", major_dimension="ROWS")
-                                events = events[0]
-                                column_event = find_free_cell_in_row(events)
-                                await sheet.update_cell(3, column_event, "Raidhelper")
-                                await sheet.update_cell(4, column_event, f"{type} {dt.strftime('%d.%m.')}")
-                        else:
-                            pass
-
-            if raidhelper_usernames and column_event:
-                # Get the column A
-                A_col = await sheet.get_values("F1:F300", major_dimension="COLUMNS")
-                A_col = A_col[0]
-                A_col = A_col[COLUMN_START_OFFSET:]
-
-                for i, member in enumerate(discord_memeber_list):
-                    discord_username, company = member
-                    discord_username_origin = discord_memeber_list_orig_names[i][0]
-                    row = find_free_cell_in_column(A_col)
-                    if any(discord_username in username for username in raidhelper_usernames):
-                        if discord_username_origin in A_col:
-                            row = A_col.index(discord_username_origin)
-                            await sheet.update_cell(row + 1 + COLUMN_START_OFFSET, column_event, "1")
-                        else:  
-                            await sheet.update_cell(row, column_event, "1")
-                    if discord_username_origin not in A_col:
-                        name_update = []
-                        name_update.append({
-                            'range': f"{Column.NAME.value}{row}",
-                            'values': [[discord_username_origin]]
-                        })
-                        await sheet.batch_update(name_update, value_input_option=gspread.utils.ValueInputOption.raw)
-                        # stats
-                        await sheet.update_cell(row, 1, f'=(ZÄHLENWENNS($J$4:$AAA$4; "*Push*";$J$3:$AAA$3;"*Teilnehmer*";J{row}:AAA{row}; ">0") + ZÄHLENWENNS($J$4:$AAA$4; "*Push*";$J$3:$AAA$3;"*Teilnehmer*";J{row}:AAA{row}; "x"))/$A$5')
-                        await sheet.update_cell(row, 2, f'=(ZÄHLENWENNS($J$4:$AAA$4; "*Krieg*";$J$3:$AAA$3;"*Teilnehmer*";J{row}:AAA{row}; ">0") + ZÄHLENWENNS($J$4:$AAA$4; "*Krieg*";$J$3:$AAA$3;"*Teilnehmer*";J{row}:AAA{row}; "x"))/$B$5')
-                        await sheet.update_cell(row, 3, f'=(ZÄHLENWENNS($J$3:$AAA$3;"*Raidhelper*";J{row}:AAA{row}; ">0") + ZÄHLENWENNS($J$3:$AAA$3;"*Raidhelper*";J{row}:AAA{row}; "x"))/$C$5')
-                        await sheet.update_cell(row, 4, f'=(ZÄHLENWENNS($J$3:$AAA$3;"*VOD*";J{row}:AAA{row}; ">0") + ZÄHLENWENNS($J$3:$AAA$3;"*VOD*";J{row}:AAA{row}; "x"))/$D$5')
-                        await sheet.update_cell(row, 5, company)
-                        await sheet.update_cell(row, 7, f'=SUMME(I{row}:AAA{row})')
-                        await sheet.update_cell(row, 8, f'=G{row}*$H$3')
-                        if row - 1 - COLUMN_START_OFFSET < len(A_col):
-                            A_col[row - 1 - COLUMN_START_OFFSET] = discord_username_origin
-                        else:
-                            A_col.append(discord_username_origin)
+            if message.id in data["raidhelper_message_ids"]:
+                continue
+                
+            raidhelper_usernames, dt = await extract_raidhelper_data(message)
+            
+            if raidhelper_usernames and dt:
+                data["raidhelper_message_ids"].append(message.id)
+                log.info("Updating payout list")
+                
+                await process_raidhelper_for_payoutlist(sheet, discord_memeber_list, discord_memeber_list_orig_names, 
+                                                      raidhelper_usernames, dt, type)
+                
                 log.info("Payout list updated")
+    
+    await raidhelper_id_manager.save(data)
+
+async def process_raidhelper_by_message_id(bot: discord.Client, client: gspread_asyncio.AsyncioGspreadClientManager, message_id: int, event_type: str, parse_display_name: callable, spread_settings: jsonFileManager.JsonFileManager):
+    """Process a specific Raidhelper message by its ID from any channel"""
+    try:
+        # Find the message in any accessible channel
+        message = None
+        for guild in bot.guilds:
+            if message:
+                break
+            for channel in guild.text_channels:
+                try:
+                    message = await channel.fetch_message(message_id)
+                    if message:
+                        log.info(f"Found message {message_id} in channel {channel.name}")
+                        break
+                except (discord.NotFound, discord.Forbidden):
+                    continue
+        
+        if not message:
+            log.error(f"Message with ID {message_id} not found in any channel")
+            return False, "Message not found in any accessible channel"
+        
+        # Open the worksheet
+        auth = await client.authorize()
+        spreadsheet_role_settings = await spread_settings.load()
+        worksheet = await auth.open(spreadsheet_role_settings["document_id"])
+        
+        # Get current month name in german
+        now = datetime.datetime.now()
+        current_month = now.strftime("%B")
+        current_year = now.strftime("%Y")
+        
+        # Load the current sheet
+        try:
+            sheet = await worksheet.worksheet(f"Payoutliste {current_month} {current_year}")
+        except gspread.exceptions.WorksheetNotFound:
+            return False, f"Die Payoutliste für {current_month} {current_year} existiert noch nicht"
+        
+        # Helper functions to parse member names
+        def get_company(member: discord.Member):
+            user_roles_ = member.roles
+            user_role_ids_ = [role.id for role in user_roles_]
+            company = None
+                
+            for user_role_id in user_role_ids_:
+                if str(user_role_id) in spreadsheet_role_settings["company_role"]:
+                    company = spreadsheet_role_settings["company_role"][str(user_role_id)]
+                    break
+
+            return company
+
+        def full_parse(member):
+            member_name = parse_display_name(member)
+            member_name = member_name.split(" | ")[0]
+            member_name = member_name.split(" I ")[0]
+            member_name = member_name.replace("🏮 ", "")
+            member_name = member_name.replace("🏮", "")
+            member_name = member_name.replace(" ", "")
+            return member_name
+        
+        def full_parse_specced(member):
+            member_name = parse_display_name(member)
+            member_name = member_name.split(" | ")[0]
+            member_name = member_name.split(" I ")[0]
+            member_name = member_name.replace("🏮 ", "")
+            member_name = member_name.replace("🏮", "")
+            return member_name
+        
+        # Get users with company roles
+        guild = message.guild
+        discord_memeber_list = [(full_parse(member), get_company(member)) for member in guild.members if get_company(member) is not None]
+        discord_memeber_list_orig_names = [(full_parse_specced(member), get_company(member)) for member in guild.members if get_company(member) is not None]
+        
+        # Check if message is already processed
+        data = await raidhelper_id_manager.load()
+        mesage_ids = data.get("raidhelper_message_ids", [])
+        
+        if message.id in mesage_ids:
+            return False, "Diese Raidhelper-Nachricht wurde bereits verarbeitet"
+        
+        # Extract data from the message
+        raidhelper_usernames, dt = await extract_raidhelper_data(message)
+        
+        if not raidhelper_usernames or not dt:
+            return False, "Keine gültigen Raidhelper-Daten in dieser Nachricht gefunden"
+        
+        # Process the data
+        result = await process_raidhelper_for_payoutlist(sheet, discord_memeber_list, discord_memeber_list_orig_names, 
+                                                       raidhelper_usernames, dt, event_type)
+        
+        if result:
+            # Mark message as processed
+            if "raidhelper_message_ids" not in data:
+                data["raidhelper_message_ids"] = []
+                
+            data["raidhelper_message_ids"].append(message.id)
             await raidhelper_id_manager.save(data)
+            
+            return True, f"Raidhelper-Event vom {dt.strftime('%d.%m.%Y')} mit {len(raidhelper_usernames)} Teilnehmern erfolgreich verarbeitet"
+        else:
+            return False, "Fehler beim Verarbeiten der Raidhelper-Daten"
+            
+    except Exception as e:
+        log.error(f"Error processing Raidhelper message: {str(e)}")
+        log.error(traceback.format_exc())
+        return False, f"Fehler: {str(e)}"
 
 async def add_new_members_to_payoutlist(sheet, discord_member_list_orig_names):
     """

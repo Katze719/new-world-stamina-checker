@@ -4326,6 +4326,12 @@ async def help_command(interaction: discord.Interaction, category: Optional[str]
                     "description": "Entfernt Mitglieder aus der Payoutliste, die nicht mehr im Server oder in der Kompanie sind.",
                     "example": "/cleanup_payoutlist",
                     "admin_only": True
+                },
+                {
+                    "name": "/process_raidhelper",
+                    "description": "Verarbeitet einen Raidhelper aus einem beliebigen Kanal für die Payoutlist",
+                    "example": "/process_raidhelper message_id:1234567890 event_type:Event",
+                    "admin_only": True
                 }
             ]
         },
@@ -5097,6 +5103,96 @@ async def cleanup_payoutlist_command(interaction: discord.Interaction):
         log.error(f"Error in cleanup_payoutlist command: {str(e)}")
         log.error(traceback.format_exc())
         await interaction.followup.send(f"⚠️ Fehler beim Bereinigen der Payoutliste: {str(e)}", ephemeral=True)
+
+@tree.command(name="process_raidhelper", description="Verarbeitet einen Raidhelper aus einem beliebigen Kanal für die Payoutlist")
+@app_commands.describe(
+    message_id="Die Nachrichten-ID des Raidhelpers (Rechtsklick auf Nachricht -> ID kopieren)",
+    event_type="Der Typ des Events (z.B. Push, Krieg, OPR, etc.)"
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def process_raidhelper_command(interaction: discord.Interaction, message_id: str, event_type: str = "Event"):
+    """Admin command to process a Raidhelper message by its ID for the payoutlist"""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        # Convert message_id to integer
+        try:
+            message_id_int = int(message_id)
+        except ValueError:
+            await interaction.followup.send("⚠️ Ungültige Nachrichten-ID. Bitte gib eine gültige ID an.", ephemeral=True)
+            return
+        
+        def parse_name(member : discord.Member):
+            pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
+            regex = pattern_to_regex(pattern)
+            match = regex.match(member.display_name)
+            if match:
+                try:
+                    return match.group("name").strip()
+                except (IndexError, KeyError):
+                    return member.display_name
+            else:
+                # Fallback: Versuche es mit dem alten Pattern ohne Level
+                old_pattern = "{name} [{icons}]"
+                old_regex = pattern_to_regex(old_pattern)
+                old_match = old_regex.match(member.display_name)
+                if old_match:
+                    try:
+                        return old_match.group("name").strip()
+                    except (IndexError, KeyError):
+                        pass
+                
+                # Einfacher Fallback: Suche nach Name vor eckigen Klammern
+                bracket_match = re.match(r'^(.*?)\s*\[.*\]$', member.display_name)
+                if bracket_match:
+                    return bracket_match.group(1).strip()
+                    
+                return member.display_name
+        
+        # Process the Raidhelper message
+        success, message = await spreadsheet.payoutlist.process_raidhelper_by_message_id(
+            bot, 
+            spreadsheet_acc, 
+            message_id_int, 
+            event_type, 
+            parse_name, 
+            spreadsheet_role_settings_manager
+        )
+        
+        if success:
+            await interaction.followup.send(f"✅ **Erfolg!** {message}", ephemeral=True)
+        else:
+            await interaction.followup.send(f"❌ **Fehler:** {message}", ephemeral=True)
+        
+    except Exception as e:
+        log.error(f"Error in process_raidhelper_command: {str(e)}")
+        log.error(traceback.format_exc())
+        await interaction.followup.send(f"⚠️ Ein unerwarteter Fehler ist aufgetreten: {str(e)}", ephemeral=True)
+
+@process_raidhelper_command.autocomplete('event_type')
+async def event_type_autocomplete(interaction: discord.Interaction, current: str):
+    """Provide autocomplete suggestions for event types"""
+    event_types = [
+        app_commands.Choice(name="Push (Expedition/Mutation)", value="Push"),
+        app_commands.Choice(name="Krieg", value="Krieg"),
+        app_commands.Choice(name="OPR", value="OPR"),
+        app_commands.Choice(name="Arena 3v3", value="Arena"),
+        app_commands.Choice(name="PvP", value="PvP"),
+        app_commands.Choice(name="Farming", value="Farming"),
+        app_commands.Choice(name="Invasionen", value="Invasion"),
+        app_commands.Choice(name="Dungeons", value="Dungeon"),
+        app_commands.Choice(name="Instanz", value="Instanz"),
+        app_commands.Choice(name="Allgemeines Event", value="Event")
+    ]
+    
+    if not current:
+        return event_types[:25]  # Return all choices if no input
+    
+    # Filter choices based on input
+    return [
+        choice for choice in event_types
+        if current.lower() in choice.name.lower() or current.lower() in choice.value.lower()
+    ][:25]
 
 bot.run(DISCORD_TOKEN)
 
