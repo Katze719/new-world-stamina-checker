@@ -188,6 +188,13 @@ async def process_remove_absence_indicator(event):
                             if absence_role and absence_role in member.roles:
                                 await member.remove_roles(absence_role)
                                 log.info(f"Removed absence role from {username}")
+                        # Austauschrolle wieder hinzufügen, falls gesetzt
+                        if "abwesenheit_exchange_role" in roles_settings:
+                            exchange_role_id = roles_settings["abwesenheit_exchange_role"]
+                            exchange_role = guild.get_role(exchange_role_id)
+                            if exchange_role and exchange_role not in member.roles:
+                                await member.add_roles(exchange_role, reason="Abwesenheit beendet - Austauschrolle wiederhergestellt")
+                                log.info(f"Re-added exchange role to {username} after absence.")
                         
                         await channel.send(f"{member.mention} Deine Abwesenheit ist jetzt vorbei. Willkommen zurück!")
                     except discord.HTTPException:
@@ -240,6 +247,13 @@ async def process_start_absence_indicator(event):
                             if absence_role and absence_role not in member.roles:
                                 await member.add_roles(absence_role, reason="Abwesenheit begonnen")
                                 log.info(f"Added absence role to {username}")
+                        # Austauschrolle entfernen, falls gesetzt
+                        if "abwesenheit_exchange_role" in roles_settings:
+                            exchange_role_id = roles_settings["abwesenheit_exchange_role"]
+                            exchange_role = guild.get_role(exchange_role_id)
+                            if exchange_role and exchange_role in member.roles:
+                                await member.remove_roles(exchange_role, reason="Abwesenheit begonnen - Austauschrolle entfernt")
+                                log.info(f"Removed exchange role from {username} due to absence.")
                         
                         await channel.send(f"{member.mention} Deine Abwesenheit hat jetzt begonnen.")
                     except discord.HTTPException:
@@ -4761,21 +4775,30 @@ async def urlaub_status(interaction: discord.Interaction):
     events_data = await events_manager.load() or {"events": []}
     events = events_data["events"]
     
-    # Filter for absence end events only
-    absence_events = [event for event in events if event.get("type") == EventType.REMOVE_ABSENCE_INDICATOR]
+    # Filter for absence end and start events
+    end_events = [event for event in events if event.get("type") == EventType.REMOVE_ABSENCE_INDICATOR]
+    start_events = [event for event in events if event.get("type") == EventType.START_ABSENCE_INDICATOR]
     
     # Get current time
     now = datetime.datetime.now(datetime.timezone.utc)
     
-    # Map to organize absence data
+    # Map to organize absence data: user_id -> {start_date, end_date, username, channel_id}
     absences = {}
     
+    # Build a lookup for start events by (user_id, channel_id)
+    start_lookup = {}
+    for event in start_events:
+        context = event.get("context", {})
+        user_id = context.get("user_id")
+        channel_id = context.get("channel_id")
+        if user_id and channel_id:
+            start_lookup[(str(user_id), str(channel_id))] = event.get("execution_date")
+    
     # Process each absence end event
-    for event in absence_events:
+    for event in end_events:
         try:
             context = event.get("context", {})
             execution_date_str = event.get("execution_date", "")
-            
             user_id = context.get("user_id")
             username = context.get("username", "Unbekannt")
             channel_id = context.get("channel_id")
@@ -4783,16 +4806,22 @@ async def urlaub_status(interaction: discord.Interaction):
             # Skip incomplete events
             if not (user_id and channel_id and execution_date_str):
                 continue
-                
+            
             # Parse end date
             end_date = datetime.datetime.fromisoformat(execution_date_str)
+            # Find start date
+            start_date_str = start_lookup.get((str(user_id), str(channel_id)), None)
+            if not start_date_str:
+                continue  # No matching start event
+            start_date = datetime.datetime.fromisoformat(start_date_str)
             
-            # Only include current absences
-            if end_date > now:
+            # Only include current absences: start_date <= now < end_date
+            if start_date <= now < end_date:
                 absences[user_id] = {
                     "username": username,
                     "channel_id": channel_id,
-                    "end_date": end_date
+                    "end_date": end_date,
+                    "start_date": start_date
                 }
         except Exception as e:
             log.error(f"Error processing absence event: {str(e)}")
@@ -4813,9 +4842,10 @@ async def urlaub_status(interaction: discord.Interaction):
             
             # Format end date
             end_date_str = data["end_date"].strftime("%d.%m.%Y")
+            start_date_str = data["start_date"].strftime("%d.%m.%Y")
             remaining_days = (data["end_date"].replace(tzinfo=None) - datetime.datetime.now().replace(tzinfo=None)).days
             
-            absence_list += f"**{data['username']}** - {channel_name} - Zurück am {end_date_str}"
+            absence_list += f"**{data['username']}** - {channel_name} - {start_date_str} bis {end_date_str}"
             if remaining_days > 0:
                 absence_list += f" (noch {remaining_days} Tage)"
             absence_list += "\n"
@@ -4830,13 +4860,24 @@ async def urlaub_status(interaction: discord.Interaction):
     
     await interaction.followup.send(embed=embed)
 
-@tree.command(name="set_abwesenheits_role", description="Setze die Rolle für Abwesenheit")
+@tree.command(name="set_abwesenheits_role", description="Setze die Rolle für Abwesenheit (optional: und eine auszutauschende Rolle)")
 @app_commands.checks.has_permissions(administrator=True)
-async def set_abwesenheits_role(interaction: discord.Interaction, role: discord.Role):
+@app_commands.describe(
+    role="Die Rolle, die als Abwesenheitsrolle gesetzt wird",
+    exchange_role="(Optional) Die Rolle, die während der Abwesenheit entfernt und danach wieder hinzugefügt wird"
+)
+async def set_abwesenheits_role(interaction: discord.Interaction, role: discord.Role, exchange_role: Optional[discord.Role] = None):
     roles = await spreadsheet_role_settings_manager.load()
     roles["abwesenheits_role"] = role.id
+    if exchange_role:
+        roles["abwesenheit_exchange_role"] = exchange_role.id
+    else:
+        roles.pop("abwesenheit_exchange_role", None)
     await spreadsheet_role_settings_manager.save(roles)
-    await interaction.response.send_message(f"Abwesenheits-Rolle wurde erfolgreich auf {role.mention} gesetzt!", ephemeral=True)
+    msg = f"Abwesenheits-Rolle wurde erfolgreich auf {role.mention} gesetzt!"
+    if exchange_role:
+        msg += f"\nWährend der Abwesenheit wird zusätzlich die Rolle {exchange_role.mention} entfernt und danach wieder hinzugefügt."
+    await interaction.response.send_message(msg, ephemeral=True)
 
 @tree.command(name="remove_abwesenheits_role", description="Entferne die Rolle für Abwesenheit")
 @app_commands.checks.has_permissions(administrator=True)
