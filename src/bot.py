@@ -4812,8 +4812,10 @@ async def urlaub_status(interaction: discord.Interaction):
             # Find start date
             start_date_str = start_lookup.get((str(user_id), str(channel_id)), None)
             if not start_date_str:
-                continue  # No matching start event
-            start_date = datetime.datetime.fromisoformat(start_date_str)
+                # PATCH: Wenn kein Start-Event existiert, setze Startdatum auf 1970-01-01
+                start_date = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
+            else:
+                start_date = datetime.datetime.fromisoformat(start_date_str)
             
             # Only include current absences: start_date <= now < end_date
             if start_date <= now < end_date:
@@ -4842,10 +4844,14 @@ async def urlaub_status(interaction: discord.Interaction):
             
             # Format end date
             end_date_str = data["end_date"].strftime("%d.%m.%Y")
-            start_date_str = data["start_date"].strftime("%d.%m.%Y")
+            # Wenn Startdatum 1970-01-01, dann als "unbekannt" anzeigen
+            if data["start_date"].date() == datetime.date(1970, 1, 1):
+                start_info = ""
+            else:
+                start_info = f"{data['start_date'].strftime('%d.%m.%Y')} bis "
             remaining_days = (data["end_date"].replace(tzinfo=None) - datetime.datetime.now().replace(tzinfo=None)).days
             
-            absence_list += f"**{data['username']}** - {channel_name} - {start_date_str} bis {end_date_str}"
+            absence_list += f"**{data['username']}** - {channel_name} - {start_info}{end_date_str}"
             if remaining_days > 0:
                 absence_list += f" (noch {remaining_days} Tage)"
             absence_list += "\n"

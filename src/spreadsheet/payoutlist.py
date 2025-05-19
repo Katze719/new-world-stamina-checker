@@ -121,8 +121,10 @@ async def process_raidhelper_for_payoutlist(sheet, discord_member_list, discord_
             end_date = datetime.datetime.fromisoformat(execution_date_str)
             start_date_str = start_lookup.get((str(user_id), str(channel_id)), None)
             if not start_date_str:
-                continue
-            start_date = datetime.datetime.fromisoformat(start_date_str)
+                # PATCH: Wenn kein Start-Event existiert, setze Startdatum auf 1970-01-01
+                start_date = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
+            else:
+                start_date = datetime.datetime.fromisoformat(start_date_str)
             absences[user_id] = (start_date, end_date)
         except Exception as e:
             pass
