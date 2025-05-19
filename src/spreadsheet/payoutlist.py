@@ -34,7 +34,8 @@ ROW_START_OFFSET = 9
 
 raidhelper_id_manager = jsonFileManager.JsonFileManager("./raidhelper_id.json")
 
-
+EVENTS_FILE_PATH = "./scheduled_events.json"
+events_manager = jsonFileManager.JsonFileManager(EVENTS_FILE_PATH)
 
 def find_free_cell_in_column(column: list):
     for i, cell in enumerate(column):
@@ -90,10 +91,46 @@ async def process_raidhelper_for_payoutlist(sheet, discord_member_list, discord_
     if not raidhelper_usernames:
         return False
     
+    # Events-Logik für Abwesenheit laden
+    events_data = await events_manager.load() or {"events": []}
+    events = events_data["events"]
+    
+    # Filter für Abwesenheits-Events
+    end_events = [event for event in events if event.get("type") == "remove_absence_indicator"]
+    start_events = [event for event in events if event.get("type") == "start_absence_indicator"]
+    
+    # Mappe Start-Events für schnellen Zugriff
+    start_lookup = {}
+    for event in start_events:
+        context = event.get("context", {})
+        user_id = context.get("user_id")
+        channel_id = context.get("channel_id")
+        if user_id and channel_id:
+            start_lookup[(str(user_id), str(channel_id))] = event.get("execution_date")
+    
+    # Baue Abwesenheits-Map: user_id -> (start, end)
+    absences = {}
+    for event in end_events:
+        try:
+            context = event.get("context", {})
+            execution_date_str = event.get("execution_date", "")
+            user_id = context.get("user_id")
+            channel_id = context.get("channel_id")
+            if not (user_id and channel_id and execution_date_str):
+                continue
+            end_date = datetime.datetime.fromisoformat(execution_date_str)
+            start_date_str = start_lookup.get((str(user_id), str(channel_id)), None)
+            if not start_date_str:
+                continue
+            start_date = datetime.datetime.fromisoformat(start_date_str)
+            absences[user_id] = (start_date, end_date)
+        except Exception as e:
+            pass
+    
     # Get next free column for event
-    events = await sheet.get_values("J3:AAA3", major_dimension="ROWS")
-    events = events[0]
-    column_event = find_free_cell_in_row(events)
+    events_row = await sheet.get_values("J3:AAA3", major_dimension="ROWS")
+    events_row = events_row[0]
+    column_event = find_free_cell_in_row(events_row)
     
     # Add event columns
     await sheet.update_cell(3, column_event, "Raidhelper")
@@ -111,11 +148,29 @@ async def process_raidhelper_for_payoutlist(sheet, discord_member_list, discord_
         row = find_free_cell_in_column(A_col)
         
         if any(discord_username in username for username in raidhelper_usernames):
+            # Prüfe, ob Nutzer abwesend ist
+            # Suche nach Discord-ID (user_id) anhand des Namens
+            # Annahme: discord_username_origin ist eindeutig und entspricht dem Namen in der Abwesenheits-Map
+            # Wir brauchen aber die user_id, daher muss discord_member_list_orig_names[i] um user_id erweitert werden, falls nicht vorhanden
+            # Alternativ: Wir prüfen auf Basis des Namens, ob ein user_id in absences existiert, dessen Name übereinstimmt
+            # Besser: Wir geben die user_id mit in discord_member_list_orig_names (muss an Aufrufer angepasst werden)
+            # Hier: Wir versuchen, die user_id aus discord_username_origin zu extrahieren, falls möglich, sonst kein x
+            user_id = None
+            if len(discord_member_list_orig_names[i]) > 1 and isinstance(discord_member_list_orig_names[i][1], str) and discord_member_list_orig_names[i][1].isdigit():
+                user_id = discord_member_list_orig_names[i][1]
+            # Fallback: Kein user_id, kein x
+            is_absent = False
+            if user_id and user_id in absences:
+                start_date, end_date = absences[user_id]
+                if start_date <= event_time < end_date:
+                    is_absent = True
+            
+            value = "x" if is_absent else "1"
             if discord_username_origin in A_col:
                 row = A_col.index(discord_username_origin)
-                await sheet.update_cell(row + 1 + COLUMN_START_OFFSET, column_event, "1")
+                await sheet.update_cell(row + 1 + COLUMN_START_OFFSET, column_event, value)
             else:  
-                await sheet.update_cell(row, column_event, "1")
+                await sheet.update_cell(row, column_event, value)
                 
         if discord_username_origin not in A_col:
             name_update = []

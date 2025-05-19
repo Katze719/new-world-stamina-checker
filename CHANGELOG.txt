@@ -1,3 +1,25 @@
+## Version 1.2.1-rc.19
+
+### **Neue Features & Verbesserungen**
+- **Flexibles Abwesenheits-Rollen-System:**
+  - Beim Befehl `/set_abwesenheits_role` kann jetzt eine **Austauschrolle** angegeben werden, die während der Abwesenheit automatisch entfernt und nach Rückkehr wieder vergeben wird.
+  - Die Logik ist nicht mehr auf Kompanierollen beschränkt – jede beliebige Rolle kann als Austauschrolle genutzt werden.
+
+- **Verbesserter Urlaubsstatus:**
+  - Der Befehl `/urlaub_status` zeigt jetzt nur noch Mitglieder als "im Urlaub" an, deren Abwesenheit tatsächlich begonnen hat (Startdatum ≤ jetzt < Enddatum).
+  - Die Anzeige ist damit deutlich präziser und vermeidet Verwirrung bei geplanten, aber noch nicht gestarteten Abwesenheiten.
+
+- **Kleinere Bugfixes & Code Cleanup:**
+  - Entfernte veraltete Hilfsfunktionen rund um Kompanierollen.
+  - Verbesserte interne Rollenverwaltung und Fehlerbehandlung.
+
+- **Verbesserte Raidhelper-Integration & Abwesenheits-Logik:**
+  - Bei der automatischen Eintragung von Raidhelper-Events in die Payoutliste wird jetzt geprüft, ob ein Teilnehmer zum Eventzeitpunkt als abwesend (Urlaub) markiert ist.
+  - Ist ein Nutzer während des Events abwesend, wird in der Payoutliste automatisch ein „x“ statt einer „1“ eingetragen.
+  - Die Abwesenheitsprüfung erfolgt auf Basis der geplanten Abwesenheiten aus dem Event-System und ist damit immer aktuell und zuverlässig.
+
+---
+
 ## Version 1.2.0-release
 
 ### **Wichtige Updates**
