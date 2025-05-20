@@ -82,7 +82,6 @@ async def stats(client: gspread_asyncio.AsyncioGspreadClientManager, interaction
         member_name = member_name.split(" I ")[0]
         member_name = member_name.replace("🏮 ", "")
         member_name = member_name.replace("🏮", "")
-        member_name = member_name.replace(" ", "")
         return member_name
     
     member_name = full_parse(user)
