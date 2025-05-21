@@ -5276,5 +5276,16 @@ async def event_type_autocomplete(interaction: discord.Interaction, current: str
         if current.lower() in choice.name.lower() or current.lower() in choice.value.lower()
     ][:25]
 
+@tree.command(name="debug_roles", description="Debugs the roles of the bot and the member")
+async def debug_roles(interaction: discord.Interaction, member: discord.Member, role: discord.Role):
+    bot_member = interaction.guild.me
+    info = (
+        f"Bot-Top-Rolle: {bot_member.top_role} (Pos {bot_member.top_role.position})\n"
+        f"Zielrolle:    {role} (Pos {role.position})\n"
+        f"{member} Top-Rolle: {member.top_role} (Pos {member.top_role.position})"
+    )
+    await interaction.response.send_message(f"```{info}```")
+
+
 bot.run(DISCORD_TOKEN)
 
