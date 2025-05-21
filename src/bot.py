@@ -5291,7 +5291,7 @@ async def debug_roles(
     info = (
         f"Bot-Top-Rolle: {bot_member.top_role} (Pos {bot_member.top_role.position})\n"
         f"Zielrolle:    {role} (Pos {role.position}, managed={role.managed})\n"
-        f"{member} Top-Rolle: {member.top_role} (Pos {member.top_role.position})"
+        f"{member.display_name} Top-Rolle: {member.top_role} (Pos {member.top_role.position})"
     )
 
     # -------- 2) Checks ------------------------------------------------------
