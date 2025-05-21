@@ -5276,15 +5276,55 @@ async def event_type_autocomplete(interaction: discord.Interaction, current: str
         if current.lower() in choice.name.lower() or current.lower() in choice.value.lower()
     ][:25]
 
-@tree.command(name="debug_roles", description="Debugs the roles of the bot and the member")
-async def debug_roles(interaction: discord.Interaction, member: discord.Member, role: discord.Role):
+@tree.command(
+    name="debug_roles",
+    description="Prüft, ob der Bot die angegebene Rolle beim Mitglied vergeben/entfernen könnte"
+)
+async def debug_roles(
+    interaction: discord.Interaction,
+    member: discord.Member,
+    role: discord.Role
+):
     bot_member = interaction.guild.me
+
+    # -------- 1) Daten anzeigen ---------------------------------------------
     info = (
         f"Bot-Top-Rolle: {bot_member.top_role} (Pos {bot_member.top_role.position})\n"
-        f"Zielrolle:    {role} (Pos {role.position})\n"
+        f"Zielrolle:    {role} (Pos {role.position}, managed={role.managed})\n"
         f"{member} Top-Rolle: {member.top_role} (Pos {member.top_role.position})"
     )
-    await interaction.response.send_message(f"```{info}```")
+
+    # -------- 2) Checks ------------------------------------------------------
+    errors = []
+
+    # a) Hat der Bot die globale Berechtigung „Rollen verwalten“?
+    if not bot_member.guild_permissions.manage_roles:
+        errors.append("Keine Guild-Permission **Manage Roles** (`MANAGE_ROLES`).")
+
+    # b) Ist die Zielrolle „managed“ (z. B. von Integrationen/Bots)?  ⇒ Unveränderbar
+    if role.managed:
+        errors.append("Zielrolle ist *managed* und kann nicht geändert werden.")
+
+    # c) Steht die Zielrolle unter der höchsten Bot-Rolle?
+    if role.position >= bot_member.top_role.position:
+        errors.append("Meine höchste Rolle steht **nicht über** der Zielrolle.")
+
+    # d) Steht die höchste Rolle des Mitglieds unter der höchsten Bot-Rolle?
+    if member.top_role.position >= bot_member.top_role.position:
+        errors.append(
+            "Mitglied hat eine gleich hohe oder höhere Rolle als ich."
+        )
+
+    # -------- 3) Ergebnis zusammenbauen --------------------------------------
+    if errors:
+        result = "❌ **Kann Rolle NICHT vergeben/entfernen:**\n" + "\n".join(f"• {e}" for e in errors)
+    else:
+        result = "✅ **Alle Checks bestanden – ich dürfte die Rolle vergeben/entfernen.**"
+
+    # -------- 4) Antwort -----------------------------------------------------
+    await interaction.response.send_message(
+        f"```{info}```\n{result}",
+    )
 
 
 bot.run(DISCORD_TOKEN)
