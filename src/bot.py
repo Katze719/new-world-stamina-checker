@@ -198,8 +198,9 @@ async def process_remove_absence_indicator(event):
                                 log.info(f"Re-added exchange role to {username} after absence.")
                         
                         await channel.send(f"{member.mention} Deine Abwesenheit ist jetzt vorbei. Willkommen zurück!")
-                    except discord.HTTPException:
-                        log.error(f"Failed to send welcome back message to {username}")
+                    except discord.HTTPException as e:
+                        log.error(f"Failed to send welcome back message to {username}: {str(e)}")
+                        await channel.send(f"Failed to send welcome back message to {username}: {str(e)}")
             
             return True
         except discord.Forbidden:
@@ -257,8 +258,9 @@ async def process_start_absence_indicator(event):
                                 log.info(f"Removed exchange role from {username} due to absence.")
                         
                         await channel.send(f"{member.mention} Deine Abwesenheit hat jetzt begonnen.")
-                    except discord.HTTPException:
-                        log.error(f"Failed to send absence start message to {username}")
+                    except discord.HTTPException as e:
+                        log.error(f"Failed to send absence start message to {username}: {str(e)}")
+                        await channel.send(f"Failed to send absence start message to {username}: {str(e)}")
             
             return True
         except discord.Forbidden:
