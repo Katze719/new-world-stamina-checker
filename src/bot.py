@@ -472,7 +472,7 @@ async def download_video(youtube_url, on_patch_network=None):
                     raise
                 log.warning(f"Download fehlgeschlagen wegen YouTube-Login/Cookie-Fehler. Starte VPN neu (Versuch {attempt}/{max_retries}) ...")
                 try:
-                    requests.post("http://localhost:8000/openvpn/actions/restart", timeout=5)
+                    requests.get("http://localhost:8000/openvpn/actions/restart", timeout=5)
                 except Exception as vpn_e:
                     log.error(f"Fehler beim Neustarten des VPNs: {vpn_e}")
                 # Kurze Pause, damit VPN Zeit hat
