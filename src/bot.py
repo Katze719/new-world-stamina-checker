@@ -38,6 +38,7 @@ import functools
 import gspread
 import gspread.exceptions
 import traceback
+import requests
 
 
 DISCORD_TOKEN = os.getenv("BOT_TOKEN")
@@ -443,16 +444,42 @@ async def edit_msg(interaction: discord.Interaction, msg_id: int, embed: discord
     except (discord.NotFound, discord.HTTPException) as e:
         log.error(f"Message wurde wahrscheinlich gelöscht: {str(e)}")
 
-async def download_video(youtube_url):
+async def download_video(youtube_url, on_patch_network=None):
     video_path = f"{DOWNLOAD_FOLDER}video.mp4"
-    
     ydl_opts = {
         "outtmpl": video_path,
         'format': 'bestvideo[height<=1080]+bestaudio/best',
         'merge_output_format': 'mp4',
     }
-    
-    await asyncio.to_thread(lambda: yt_dlp.YoutubeDL(ydl_opts).download([youtube_url]))
+    max_retries = 10
+    attempt = 0
+    while True:
+        try:
+            await asyncio.to_thread(lambda: yt_dlp.YoutubeDL(ydl_opts).download([youtube_url]))
+            break  # Erfolg
+        except yt_dlp.utils.DownloadError as e:
+            error_msg = str(e)
+            # Prüfe auf den spezifischen Fehlertext bzgl. YouTube-Cookies/Sign-in
+            if (
+                "Sign in to confirm you're not a bot" in error_msg or
+                "Use --cookies-from-browser or --cookies for the authentication" in error_msg
+            ):
+                attempt += 1
+                if attempt == 1 and on_patch_network is not None:
+                    await on_patch_network()
+                if attempt > max_retries:
+                    log.error(f"Download nach {max_retries} VPN-Restarts immer noch fehlgeschlagen: {e}")
+                    raise
+                log.warning(f"Download fehlgeschlagen wegen YouTube-Login/Cookie-Fehler. Starte VPN neu (Versuch {attempt}/{max_retries}) ...")
+                try:
+                    requests.post("http://localhost:8000/openvpn/actions/restart", timeout=5)
+                except Exception as vpn_e:
+                    log.error(f"Fehler beim Neustarten des VPNs: {vpn_e}")
+                # Kurze Pause, damit VPN Zeit hat
+                await asyncio.sleep(10)
+                continue  # Nächster Versuch
+            else:
+                raise
     return video_path
 
 async def send_images(interaction: discord.Interaction, folder_path: str):
@@ -596,7 +623,13 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
 
             log.info("Starte Download")
             time_start_download = time.time()
-            video_path = await download_video(youtube_url)
+            async def on_patch_network():
+                try:
+                    embed.description = "🕵️‍♂️ Psst! Ich schleiche mich gerade an der YouTube Firewall vorbei... *tippt sich an die Nase und setzt Sonnenbrille auf* 😎 (Damit die YouTube Firewall nicht erkennt, dass ich ein Bot bin)"
+                    await edit_msg(interaction, msg.id, embed)
+                except Exception as e:
+                    log.error(f"Fehler beim Senden der Patch-Nachricht: {e}")
+            video_path = await download_video(youtube_url, on_patch_network=on_patch_network)
             time_end_download = time.time()
 
             # Video-Informationen anzeigen
