@@ -5452,25 +5452,45 @@ class ExtractedUsersView(discord.ui.View):
     
     async def _add_merge_select_menu(self):
         if not self.channel or not self.message:
+            # If we don't have a channel or message, add the regular merge button
+            merge_button = discord.ui.Button(
+                style=discord.ButtonStyle.primary,
+                label="Mit anderer Liste zusammenführen",
+                custom_id="merge_button"
+            )
+            merge_button.callback = self.merge_button_callback
+            self.add_item(merge_button)
             return
-            
+        
         # Scan the channel for mergeable messages (user lists from this bot)
         mergeable_messages = []
-        async for message in self.channel.history(limit=100):
-            # Skip the current message
-            if message.id == self.message_id:
-                continue
+        try:
+            async for message in self.channel.history(limit=100):
+                # Skip the current message
+                if message.id == self.message_id:
+                    continue
                 
-            # Check if it's from the bot and has embeds with user lists
-            if (message.author.id == self.message.guild.me.id and 
-                message.embeds and 
-                any(field.name.startswith("Nutzer Gruppe") for field in message.embeds[0].fields) and
-                message.id not in self.merged_messages):
-                mergeable_messages.append(message)
-                
-                # Limit to 25 messages
-                if len(mergeable_messages) >= 25:
-                    break
+                # Check if it's from the bot and has embeds with user lists
+                if (message.author.id == self.message.guild.me.id and 
+                    message.embeds and 
+                    any(field.name.startswith("Nutzer Gruppe") for field in message.embeds[0].fields if field.name) and
+                    message.id not in self.merged_messages):
+                    mergeable_messages.append(message)
+                    
+                    # Limit to 25 messages
+                    if len(mergeable_messages) >= 25:
+                        break
+        except Exception as e:
+            print(f"Error scanning for mergeable messages: {e}")
+            # If there's an error, fall back to the regular merge button
+            merge_button = discord.ui.Button(
+                style=discord.ButtonStyle.primary,
+                label="Mit anderer Liste zusammenführen",
+                custom_id="merge_button"
+            )
+            merge_button.callback = self.merge_button_callback
+            self.add_item(merge_button)
+            return
         
         if not mergeable_messages:
             # If no mergeable messages found, add a regular merge button
@@ -5482,7 +5502,7 @@ class ExtractedUsersView(discord.ui.View):
             merge_button.callback = self.merge_button_callback
             self.add_item(merge_button)
             return
-            
+        
         # Create options for the select menu
         merge_options = []
         for msg in mergeable_messages:
@@ -5505,7 +5525,7 @@ class ExtractedUsersView(discord.ui.View):
                 time_str = "gerade eben"
             
             for field in msg.embeds[0].fields:
-                if field.name.startswith("Nutzer Gruppe"):
+                if field.name and field.name.startswith("Nutzer Gruppe"):
                     user_count += field.value.count("• ")
             
             # Create a descriptive label (with timestamp and user count)
@@ -5521,13 +5541,24 @@ class ExtractedUsersView(discord.ui.View):
         
         # Create the select menu
         if merge_options:
-            merge_menu = discord.ui.Select(
-                placeholder="Mit Nachricht zusammenführen...",
-                options=merge_options,
-                custom_id="merge_select"
-            )
-            merge_menu.callback = self.merge_select_callback
-            self.add_item(merge_menu)
+            try:
+                merge_menu = discord.ui.Select(
+                    placeholder="Mit Nachricht zusammenführen...",
+                    options=merge_options,
+                    custom_id="merge_select"
+                )
+                merge_menu.callback = self.merge_select_callback
+                self.add_item(merge_menu)
+            except Exception as e:
+                print(f"Error creating merge menu: {e}")
+                # Fall back to the regular merge button
+                merge_button = discord.ui.Button(
+                    style=discord.ButtonStyle.primary,
+                    label="Mit anderer Liste zusammenführen",
+                    custom_id="merge_button"
+                )
+                merge_button.callback = self.merge_button_callback
+                self.add_item(merge_button)
 
     async def _add_user_select_menus(self):
         # Create remove user select menu first (if there are users to remove)
@@ -5632,7 +5663,7 @@ class ExtractedUsersView(discord.ui.View):
                 # Extract users from the embed
                 users_to_merge = []
                 for field in message.embeds[0].fields:
-                    if field.name.startswith("Nutzer Gruppe"):
+                    if field.name and field.name.startswith("Nutzer Gruppe"):
                         for line in field.value.split("\n"):
                             if line.startswith("• "):
                                 user = line[2:]  # Remove "• " prefix
@@ -5666,9 +5697,11 @@ class ExtractedUsersView(discord.ui.View):
                 
             except discord.NotFound:
                 await interaction.followup.send("Nachricht nicht gefunden. Bitte wähle eine andere Nachricht.", ephemeral=True)
-            
-        except (ValueError, KeyError, IndexError):
-            await interaction.followup.send("Es ist ein Fehler aufgetreten. Bitte versuche es erneut.", ephemeral=True)
+            except Exception as e:
+                await interaction.followup.send(f"Fehler beim Zusammenführen: {str(e)}", ephemeral=True)
+        
+        except (ValueError, KeyError, IndexError) as e:
+            await interaction.followup.send(f"Es ist ein Fehler aufgetreten: {str(e)}. Bitte versuche es erneut.", ephemeral=True)
     
     async def undo_button_callback(self, interaction: discord.Interaction):
         if not self.merged_messages:
