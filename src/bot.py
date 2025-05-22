@@ -5356,12 +5356,14 @@ async def debug_roles(
 
 async def has_company_role(member: discord.Member) -> bool:
     """Check if the member has any company role"""
-    roles = await spreadsheet_role_settings_manager.load()
-    if "company_role" not in roles:
+    spreadsheet_role_settings = await spreadsheet_role_settings_manager.load()
+    if "company_role" not in spreadsheet_role_settings:
         return False
+        
+    user_role_ids = [role.id for role in member.roles]
     
-    for role_id in roles["company_role"]:
-        if role_id in member.roles:
+    for role_id in spreadsheet_role_settings["company_role"]:
+        if int(role_id) in user_role_ids:
             return True
     
     return False
