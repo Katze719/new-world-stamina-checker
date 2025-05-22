@@ -64,3 +64,6 @@ def extractNamesFromImage(path, names):
             found_names.append(nutzer)
 
     return found_names
+
+if __name__ == "__main__":
+    print(extractNamesFromImage("./output/image.png", ["Pfeffermuehle", "Daodeen", "c0hipa", "Unwissend", "Qimir", "Shipyyy", "Swoosh The Beast"]))

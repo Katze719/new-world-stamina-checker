@@ -75,6 +75,7 @@ SPREADSHEET_ROLE_SETTINGS_PATH = "./spreadsheet_role_settings.json"
 WRITTEN_RAIDHELPERS_FILE = "./written_raidhelpers.json"
 EVENTS_FILE_PATH = "./scheduled_events.json"
 USER_CHANNEL_LINKS_FILE = "./user_channel_links.json"
+EXTRACTION_MESSAGES_FILE = "./extraction_messages.json"
 
 vod_channel_manager = jsonFileManager.JsonFileManager(VOD_CHANNELS_FILE_PATH, ensure_hidden_attribute)
 settings_manager = jsonFileManager.JsonFileManager(ROLE_NAME_UPDATE_SETTINGS_PATH)
@@ -83,6 +84,7 @@ spreadsheet_role_settings_manager = jsonFileManager.JsonFileManager(SPREADSHEET_
 written_raidhelpers_manager = jsonFileManager.JsonFileManager(WRITTEN_RAIDHELPERS_FILE)
 events_manager = jsonFileManager.JsonFileManager(EVENTS_FILE_PATH)
 user_channel_links_manager = jsonFileManager.JsonFileManager(USER_CHANNEL_LINKS_FILE)
+extraction_messages_manager = jsonFileManager.JsonFileManager(EXTRACTION_MESSAGES_FILE)
 
 # Initialize SQLite database for level system
 DB_PATH = "./level_system.db"
@@ -1039,9 +1041,17 @@ async def on_message(message: discord.Message):
     if watch_user_exctaction_channel and str(message.channel.id) == str(watch_user_exctaction_channel):
         users = await extractUsers(message)    
         if users:
-            # convert to csv string
-            users = ",".join(users)
-            await message.channel.send(f"Users: {users}")
+            # Speichere als Embed mit View und persistenter Speicherung
+            embed = discord.Embed(title="Extrahierte Nutzer", description="\n".join(users))
+            msg = await message.channel.send(embed=embed)
+            # Speichere in JSON
+            data = await extraction_messages_manager.load()
+            data[str(msg.id)] = {"users": users, "merged_from": [], "history": None}
+            await extraction_messages_manager.save(data)
+            view = ExtractionView(msg.id, users, message.guild)
+            # Wichtig: View immer als non-ephemeral senden, damit sie dauerhaft klickbar bleibt
+            await msg.edit(view=view)
+            return
 
     channels = await vod_channel_manager.load()
     if str(message.channel.id) not in channels:
@@ -5297,11 +5307,11 @@ async def debug_roles(
     # -------- 2) Checks ------------------------------------------------------
     errors = []
 
-    # a) Hat der Bot die globale Berechtigung „Rollen verwalten“?
+    # a) Hat der Bot die globale Berechtigung „Rollen verwalten"?
     if not bot_member.guild_permissions.manage_roles:
         errors.append("Keine Guild-Permission **Manage Roles** (`MANAGE_ROLES`).")
 
-    # b) Ist die Zielrolle „managed“ (z. B. von Integrationen/Bots)?  ⇒ Unveränderbar
+    # b) Ist die Zielrolle „managed" (z. B. von Integrationen/Bots)?  ⇒ Unveränderbar
     if role.managed:
         errors.append("Zielrolle ist *managed* und kann nicht geändert werden.")
 
@@ -5326,6 +5336,149 @@ async def debug_roles(
         f"```{info}```\n{result}",
     )
 
+
+# Am Anfang: Datei-Manager für Extraction-Messages
+# --- Extraction View und Hilfsfunktionen ---
+# Alle Views werden mit timeout=None erstellt, damit die Buttons dauerhaft funktionieren.
+class ExtractionView(discord.ui.View):
+    def __init__(self, message_id, users, guild, merged_from=None, can_undo=False):
+        super().__init__(timeout=None)
+        self.message_id = message_id
+        self.guild = guild
+        self.update_selects(users, merged_from, can_undo)
+
+    def update_selects(self, users, merged_from, can_undo):
+        self.clear_items()
+        # Entfernen-Select
+        if users:
+            self.add_item(RemoveUserSelect(self.message_id, users))
+        # Hinzufügen-Select
+        all_members = [m.display_name for m in self.guild.members if not m.bot]
+        addable = [u for u in all_members if u not in users]
+        if addable:
+            self.add_item(AddUserSelect(self.message_id, addable))
+        # Merge-Buttons
+        self.add_item(MergePrevButton(self.message_id))
+        self.add_item(MergeNextButton(self.message_id))
+        # Undo-Button (nur wenn gemerged)
+        if can_undo:
+            self.add_item(UndoMergeButton(self.message_id))
+
+class RemoveUserSelect(discord.ui.Select):
+    def __init__(self, message_id, users):
+        options = [discord.SelectOption(label=u) for u in users]
+        super().__init__(placeholder="User entfernen...", min_values=1, max_values=len(users), options=options)
+        self.message_id = message_id
+
+    async def callback(self, interaction):
+        data = await extraction_messages_manager.load()
+        selected = self.values
+        users = data.get(str(self.message_id), {}).get("users", [])
+        users = [u for u in users if u not in selected]
+        data[str(self.message_id)]["users"] = users
+        await extraction_messages_manager.save(data)
+        await update_extraction_message(interaction, self.message_id)
+
+class AddUserSelect(discord.ui.Select):
+    def __init__(self, message_id, addable):
+        options = [discord.SelectOption(label=u) for u in addable]
+        super().__init__(placeholder="User hinzufügen...", min_values=1, max_values=len(addable), options=options)
+        self.message_id = message_id
+
+    async def callback(self, interaction):
+        data = await extraction_messages_manager.load()
+        selected = self.values
+        users = data.get(str(self.message_id), {}).get("users", [])
+        for u in selected:
+            if u not in users:
+                users.append(u)
+        data[str(self.message_id)]["users"] = users
+        await extraction_messages_manager.save(data)
+        await update_extraction_message(interaction, self.message_id)
+
+class MergePrevButton(discord.ui.Button):
+    def __init__(self, message_id):
+        super().__init__(label="Mit vorheriger mergen", style=discord.ButtonStyle.primary)
+        self.message_id = message_id
+
+    async def callback(self, interaction):
+        prev_msg = await find_adjacent_extraction_message(interaction.channel, self.message_id, direction="prev")
+        if prev_msg:
+            await merge_extraction_messages(self.message_id, prev_msg.id, interaction)
+        else:
+            await interaction.response.send_message("Keine vorherige Extraction-Nachricht gefunden.", ephemeral=True)
+
+class MergeNextButton(discord.ui.Button):
+    def __init__(self, message_id):
+        super().__init__(label="Mit nächster mergen", style=discord.ButtonStyle.primary)
+        self.message_id = message_id
+
+    async def callback(self, interaction):
+        next_msg = await find_adjacent_extraction_message(interaction.channel, self.message_id, direction="next")
+        if next_msg:
+            await merge_extraction_messages(self.message_id, next_msg.id, interaction)
+        else:
+            await interaction.response.send_message("Keine nächste Extraction-Nachricht gefunden.", ephemeral=True)
+
+class UndoMergeButton(discord.ui.Button):
+    def __init__(self, message_id):
+        super().__init__(label="Merge rückgängig", style=discord.ButtonStyle.danger)
+        self.message_id = message_id
+
+    async def callback(self, interaction):
+        data = await extraction_messages_manager.load()
+        history = data.get(str(self.message_id), {}).get("history")
+        if history:
+            data[str(self.message_id)]["users"] = history["users"]
+            data[str(self.message_id)]["merged_from"] = history["merged_from"]
+            data[str(self.message_id)]["history"] = None
+            await extraction_messages_manager.save(data)
+            await update_extraction_message(interaction, self.message_id)
+        else:
+            await interaction.response.send_message("Kein Merge zum Rückgängig machen.", ephemeral=True)
+
+async def update_extraction_message(interaction, message_id):
+    data = await extraction_messages_manager.load()
+    users = data.get(str(message_id), {}).get("users", [])
+    merged_from = data.get(str(message_id), {}).get("merged_from", [])
+    can_undo = data.get(str(message_id), {}).get("history") is not None
+    embed = discord.Embed(title="Extrahierte Nutzer", description="\n".join(users))
+    if merged_from:
+        embed.set_footer(text=f"Gemerged aus: {', '.join(str(mid) for mid in merged_from)}")
+    view = ExtractionView(message_id, users, interaction.guild, merged_from, can_undo)
+    msg = await interaction.channel.fetch_message(int(message_id))
+    await msg.edit(embed=embed, view=view)
+    await interaction.response.defer()
+
+async def merge_extraction_messages(msg_id1, msg_id2, interaction):
+    data = await extraction_messages_manager.load()
+    users1 = data.get(str(msg_id1), {}).get("users", [])
+    users2 = data.get(str(msg_id2), {}).get("users", [])
+    merged = list(dict.fromkeys(users1 + users2))  # Reihenfolge erhalten, Duplikate raus
+    # Speichere History für Undo
+    data[str(msg_id1)]["history"] = {
+        "users": users1.copy(),
+        "merged_from": data[str(msg_id1)].get("merged_from", []).copy()
+    }
+    data[str(msg_id1)]["users"] = merged
+    data[str(msg_id1)]["merged_from"] = [msg_id1, msg_id2]
+    await extraction_messages_manager.save(data)
+    await update_extraction_message(interaction, msg_id1)
+
+async def find_adjacent_extraction_message(channel, current_msg_id, direction="prev"):
+    data = await extraction_messages_manager.load()
+    current_msg_id = int(current_msg_id)
+    prev = None
+    found = False
+    async for msg in channel.history(limit=50, oldest_first=True):
+        if msg.id == current_msg_id:
+            found = True
+            continue
+        if found and direction == "next" and msg.author.bot and str(msg.id) in data:
+            return msg
+        if not found and direction == "prev" and msg.author.bot and str(msg.id) in data:
+            prev = msg
+    return prev if direction == "prev" else None
 
 bot.run(DISCORD_TOKEN)
 
