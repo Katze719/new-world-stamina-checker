@@ -75,7 +75,6 @@ SPREADSHEET_ROLE_SETTINGS_PATH = "./spreadsheet_role_settings.json"
 WRITTEN_RAIDHELPERS_FILE = "./written_raidhelpers.json"
 EVENTS_FILE_PATH = "./scheduled_events.json"
 USER_CHANNEL_LINKS_FILE = "./user_channel_links.json"
-EXTRACTION_MESSAGES_FILE = "./extraction_messages.json"
 
 vod_channel_manager = jsonFileManager.JsonFileManager(VOD_CHANNELS_FILE_PATH, ensure_hidden_attribute)
 settings_manager = jsonFileManager.JsonFileManager(ROLE_NAME_UPDATE_SETTINGS_PATH)
@@ -84,7 +83,6 @@ spreadsheet_role_settings_manager = jsonFileManager.JsonFileManager(SPREADSHEET_
 written_raidhelpers_manager = jsonFileManager.JsonFileManager(WRITTEN_RAIDHELPERS_FILE)
 events_manager = jsonFileManager.JsonFileManager(EVENTS_FILE_PATH)
 user_channel_links_manager = jsonFileManager.JsonFileManager(USER_CHANNEL_LINKS_FILE)
-extraction_messages_manager = jsonFileManager.JsonFileManager(EXTRACTION_MESSAGES_FILE)
 
 # Initialize SQLite database for level system
 DB_PATH = "./level_system.db"
@@ -1041,21 +1039,21 @@ async def on_message(message: discord.Message):
     if watch_user_exctaction_channel and str(message.channel.id) == str(watch_user_exctaction_channel):
         users = await extractUsers(message)    
         if users:
-            # Speichere als Embed mit View und persistenter Speicherung
-            embed = discord.Embed(title="Extrahierte Nutzer", description="\n".join(users))
-            msg = await message.channel.send(embed=embed)
-            # Speichere in JSON
-            data = await extraction_messages_manager.load()
-            data[str(msg.id)] = {"users": users, "merged_from": [], "history": None}
-            await extraction_messages_manager.save(data)
-            view = ExtractionView(msg.id, users, message.guild)
-            # Wichtig: View immer als non-ephemeral senden, damit sie dauerhaft klickbar bleibt
-            await msg.edit(view=view)
-            return
+            # Create embed and view
+            view = ExtractedUsersView(message.guild, users)
+            embed = view._create_embed()
+            sent_message = await message.channel.send(embed=embed, view=view)
+            
+            # Save message ID in the view for reference
+            view.message_id = sent_message.id
+        elif message.attachments:
+            # If we had an image but no company users were found, inform the user
+            await message.channel.send("Keine Nutzer mit Kompanie-Rolle im Bild gefunden.")
 
     channels = await vod_channel_manager.load()
     if str(message.channel.id) not in channels:
         return
+    
     
     match = YOUTUBE_REGEX.search(message.content)
     if match:
@@ -1952,7 +1950,27 @@ async def extractUsers(message: discord.Message):
         # extract users from image
         users = textExtract.extractNamesFromImage(image_path, nicknames)
         os.remove(image_path)
-        return users
+        
+        # Filter users to only include those with company roles
+        filtered_users = []
+        for username in users:
+            # Find the member with this username
+            for member in guild.members:
+                pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
+                regex = pattern_to_regex(pattern)
+                match = regex.match(member.display_name)
+                if match:
+                    base_name = match.group("name").strip()
+                else:
+                    base_name = member.display_name
+                
+                if base_name == username:
+                    # Check if member has company role
+                    if await has_company_role(member):
+                        filtered_users.append(username)
+                    break
+        
+        return filtered_users
     
     #delete tmp file
     os.remove(image_path)
@@ -5336,220 +5354,344 @@ async def debug_roles(
         f"```{info}```\n{result}",
     )
 
+async def has_company_role(member: discord.Member) -> bool:
+    """Check if the member has any company role"""
+    roles = await spreadsheet_role_settings_manager.load()
+    if "company_role" not in roles:
+        return False
+    
+    for role_id in roles["company_role"]:
+        if role_id in member.roles:
+            return True
+    
+    return False
 
-# Am Anfang: Datei-Manager für Extraction-Messages
-# --- Extraction View und Hilfsfunktionen ---
-# Alle Views werden mit timeout=None erstellt, damit die Buttons dauerhaft funktionieren.
-class ExtractionView(discord.ui.View):
-    def __init__(self, message_id, users, guild, merged_from=None, can_undo=False, remove_page=0, add_page=0):
+class UserSelectMenu(discord.ui.Select):
+    def __init__(self, placeholder, options, max_values=25, custom_id=None):
+        super().__init__(
+            placeholder=placeholder,
+            min_values=0,
+            max_values=max_values,
+            options=options,
+            custom_id=custom_id
+        )
+    
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        await self.view.update_user_list(interaction, self.values, self.custom_id)
+
+class ExtractedUsersView(discord.ui.View):
+    def __init__(self, guild, user_list, message_id=None, prev_merge_data=None):
         super().__init__(timeout=None)
-        self.message_id = message_id
         self.guild = guild
-        self.remove_page = remove_page
-        self.add_page = add_page
-        self.update_selects(users, merged_from, can_undo)
-
-    def update_selects(self, users, merged_from, can_undo):
+        self.user_list = user_list
+        self.message_id = message_id
+        self.original_user_list = user_list.copy() if prev_merge_data is None else prev_merge_data.get("original_user_list", user_list.copy())
+        self.merged_messages = [] if prev_merge_data is None else prev_merge_data.get("merged_messages", [])
+        self.merged_users = [] if prev_merge_data is None else prev_merge_data.get("merged_users", [])
+        
+        # Store data in database for potential undo operations
+        self.merge_data = {
+            "original_user_list": self.original_user_list,
+            "merged_messages": self.merged_messages,
+            "merged_users": self.merged_users
+        }
+        
+        self._refresh_components()
+    
+    def _refresh_components(self):
+        # Clear existing items
         self.clear_items()
-        # Entfernen-Select mit Pagination
-        if users:
-            self.add_item(RemoveUserSelect(self.message_id, users, self.remove_page))
-            if len(users) > 25:
-                self.add_item(RemovePrevPageButton(self.message_id, self.remove_page))
-                self.add_item(RemoveNextPageButton(self.message_id, users, self.remove_page))
-        # Hinzufügen-Select mit Pagination
-        all_members = [m.display_name for m in self.guild.members if not m.bot]
-        addable = [u for u in all_members if u not in users]
-        if addable:
-            self.add_item(AddUserSelect(self.message_id, addable, self.add_page))
-            if len(addable) > 25:
-                self.add_item(AddPrevPageButton(self.message_id, self.add_page))
-                self.add_item(AddNextPageButton(self.message_id, addable, self.add_page))
-        # Merge-Buttons
-        self.add_item(MergePrevButton(self.message_id))
-        self.add_item(MergeNextButton(self.message_id))
-        # Undo-Button (nur wenn gemerged)
-        if can_undo:
-            self.add_item(UndoMergeButton(self.message_id))
+        
+        # Add merge button
+        merge_button = discord.ui.Button(
+            style=discord.ButtonStyle.primary,
+            label="Mit anderer Liste zusammenführen",
+            custom_id="merge_button"
+        )
+        merge_button.callback = self.merge_button_callback
+        self.add_item(merge_button)
+        
+        # Add undo button if there are merges
+        if self.merged_messages:
+            undo_button = discord.ui.Button(
+                style=discord.ButtonStyle.danger,
+                label="Zusammenführung rückgängig machen",
+                custom_id="undo_button"
+            )
+            undo_button.callback = self.undo_button_callback
+            self.add_item(undo_button)
+        
+        # Add user select menus
+        asyncio.create_task(self._add_user_select_menus())
+    
+    async def _add_user_select_menus(self):
+        # Create remove user select menu first (if there are users to remove)
+        if self.user_list:
+            # Create chunks of up to 25 users for removal menus
+            for i in range(0, len(self.user_list), 25):
+                chunk = self.user_list[i:i+25]
+                remove_options = []
+                
+                for user_name in chunk:
+                    if len(user_name) > 100:
+                        # Truncate long names for SelectOption
+                        display_name = user_name[:97] + "..."
+                    else:
+                        display_name = user_name
+                    
+                    remove_options.append(discord.SelectOption(
+                        label=display_name,
+                        value=user_name
+                    ))
+                
+                if remove_options:
+                    chunk_num = i // 25
+                    remove_menu = UserSelectMenu(
+                        placeholder=f"Nutzer entfernen (Gruppe {chunk_num + 1})...",
+                        options=remove_options,
+                        max_values=len(remove_options),
+                        custom_id=f"remove_users_{chunk_num}"
+                    )
+                    self.add_item(remove_menu)
+        
+        # Get all members with company roles
+        company_members = []
+        
+        # This could be a slow operation for large guilds
+        for member in self.guild.members:
+            if await has_company_role(member):
+                company_members.append(member)
+        
+        # Create select menus for adding company members
+        # Process in chunks of 25 (Discord's limit for select options)
+        for i in range(0, len(company_members), 25):
+            chunk = company_members[i:i+25]
+            add_options = []
+            
+            for member in chunk:
+                # Get the base name
+                pattern = role_name_update_settings_cache.get("global_pattern", "{name}")
+                regex = pattern_to_regex(pattern)
+                match = regex.match(member.display_name)
+                if match:
+                    base_name = match.group("name").strip()
+                else:
+                    base_name = member.display_name
+                
+                # Only add if not already in the list
+                if base_name not in self.user_list:
+                    if len(base_name) > 100:
+                        # Truncate label if too long for SelectOption
+                        display_name = base_name[:97] + "..."
+                    else:
+                        display_name = base_name
+                    
+                    add_options.append(discord.SelectOption(
+                        label=display_name,
+                        value=base_name
+                    ))
+            
+            if add_options:
+                add_menu = UserSelectMenu(
+                    placeholder=f"Nutzer hinzufügen (Gruppe {i//25 + 1})...",
+                    options=add_options,
+                    max_values=len(add_options),
+                    custom_id=f"add_users_{i//25}"
+                )
+                self.add_item(add_menu)
+    
+    async def merge_button_callback(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(MergeModal(self))
+    
+    async def undo_button_callback(self, interaction: discord.Interaction):
+        if not self.merged_messages:
+            await interaction.response.send_message("Keine Zusammenführungen zum Rückgängig machen vorhanden.", ephemeral=True)
+            return
+        
+        # Restore the original user list
+        self.user_list = self.original_user_list.copy()
+        self.merged_messages = []
+        self.merged_users = []
+        
+        # Update the merge data
+        self.merge_data = {
+            "original_user_list": self.original_user_list,
+            "merged_messages": self.merged_messages,
+            "merged_users": self.merged_users
+        }
+        
+        # Update embed and components
+        embed = self._create_embed()
+        self._refresh_components()
+        await interaction.response.edit_message(embed=embed, view=self)
+    
+    async def update_user_list(self, interaction: discord.Interaction, values, custom_id):
+        if custom_id.startswith("remove_users_"):
+            # Remove selected users
+            for user in values:
+                if user in self.user_list:
+                    self.user_list.remove(user)
+        elif custom_id.startswith("add_users_"):
+            # Add selected users
+            for user in values:
+                if user not in self.user_list:
+                    self.user_list.append(user)
+        
+        # Update embed and components
+        embed = self._create_embed()
+        self._refresh_components()
+        await interaction.message.edit(embed=embed, view=self)
+    
+    def _create_embed(self):
+        embed = discord.Embed(
+            title="Extrahierte Nutzer",
+            description="Aus dem Bild extrahierte Nutzer:",
+            color=discord.Color.blue()
+        )
+        
+        # Format user list (up to 25 per field)
+        for i in range(0, len(self.user_list), 25):
+            chunk = self.user_list[i:i+25]
+            field_value = "\n".join([f"• {user}" for user in chunk])
+            if not field_value:
+                field_value = "No users in this group"
+            embed.add_field(
+                name=f"User Group {i//25 + 1}",
+                value=field_value,
+                inline=False
+            )
+        
+        # Add merged info if any
+        if self.merged_messages:
+            merged_info = "\n".join([f"• Message ID: {msg_id}" for msg_id in self.merged_messages])
+            embed.add_field(
+                name="Merged with",
+                value=merged_info,
+                inline=False
+            )
+        
+        return embed
 
-class RemoveUserSelect(discord.ui.Select):
-    def __init__(self, message_id, users, page):
-        page_size = 25
-        start = page * page_size
-        end = start + page_size
-        page_users = users[start:end]
-        options = [discord.SelectOption(label=u) for u in page_users]
-        super().__init__(placeholder=f"User entfernen... (Seite {page+1})", min_values=1, max_values=len(options), options=options)
-        self.message_id = message_id
-        self.page = page
+class MergeModal(discord.ui.Modal, title="Merge User Lists"):
+    message_id = discord.ui.TextInput(
+        label="Message ID to merge with",
+        placeholder="Enter the message ID of another user list",
+        required=True
+    )
+    
+    def __init__(self, view):
+        super().__init__()
+        self.parent_view = view
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            message_id = int(self.message_id.value)
+            channel = interaction.channel
+            
+            try:
+                message = await channel.fetch_message(message_id)
+                
+                # Check if it's a bot message with an embed
+                if message.author.id != interaction.client.user.id or not message.embeds:
+                    await interaction.followup.send("The specified message is not a valid user list.", ephemeral=True)
+                    return
+                
+                # Extract users from the embed
+                users_to_merge = []
+                for field in message.embeds[0].fields:
+                    if field.name.startswith("User Group"):
+                        for line in field.value.split("\n"):
+                            if line.startswith("• "):
+                                user = line[2:]  # Remove "• " prefix
+                                if user not in users_to_merge:
+                                    users_to_merge.append(user)
+                
+                # Merge the lists
+                original_count = len(self.parent_view.user_list)
+                for user in users_to_merge:
+                    if user not in self.parent_view.user_list:
+                        self.parent_view.user_list.append(user)
+                
+                # Update merged data
+                self.parent_view.merged_messages.append(message_id)
+                self.parent_view.merged_users.extend([u for u in users_to_merge if u not in self.parent_view.merged_users])
+                
+                # Update the merge data
+                self.parent_view.merge_data = {
+                    "original_user_list": self.parent_view.original_user_list,
+                    "merged_messages": self.parent_view.merged_messages,
+                    "merged_users": self.parent_view.merged_users
+                }
+                
+                # Create updated embed and refresh components
+                embed = self.parent_view._create_embed()
+                self.parent_view._refresh_components()
+                await interaction.message.edit(embed=embed, view=self.parent_view)
+                
+                await interaction.followup.send(f"Successfully merged lists. Added {len(self.parent_view.user_list) - original_count} new users.", ephemeral=True)
+                
+            except discord.NotFound:
+                await interaction.followup.send("Message not found. Please check the message ID.", ephemeral=True)
+            
+        except ValueError:
+            await interaction.followup.send("Invalid message ID. Please enter a valid number.", ephemeral=True)
 
-    async def callback(self, interaction):
-        data = await extraction_messages_manager.load()
-        selected = self.values
-        users = data.get(str(self.message_id), {}).get("users", [])
-        users = [u for u in users if u not in selected]
-        data[str(self.message_id)]["users"] = users
-        await extraction_messages_manager.save(data)
-        # Bleibe auf der aktuellen Seite, außer sie ist jetzt leer
-        max_page = max(0, (len(users)-1)//25)
-        page = min(self.page, max_page)
-        await update_extraction_message(interaction, self.message_id, remove_page=page)
+async def extractUsers(message: discord.Message):
+    # check if user sent a image
+    if not message.attachments:
+        return []
+    
+    # download image
+    attachment = message.attachments[0]
+    image_path = os.path.join("temp", attachment.filename)
+    os.makedirs("temp", exist_ok=True)
+    await attachment.save(image_path)
 
-class RemovePrevPageButton(discord.ui.Button):
-    def __init__(self, message_id, page):
-        super().__init__(label="⬅️ Entfernen-Seite", style=discord.ButtonStyle.secondary, row=1)
-        self.message_id = message_id
-        self.page = page
+    guild = message.guild
+    if guild:
+        # create list with user nicknames
+        nicknames = []
+        for member in guild.members:
+            pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
+            regex = pattern_to_regex(pattern)
+            match = regex.match(member.display_name)
+            if match:
+                base_name = match.group("name").strip()
+            else:
+                base_name = member.display_name
+            nicknames.append(base_name)
 
-    async def callback(self, interaction):
-        page = max(0, self.page - 1)
-        await update_extraction_message(interaction, self.message_id, remove_page=page)
-
-class RemoveNextPageButton(discord.ui.Button):
-    def __init__(self, message_id, users, page):
-        super().__init__(label="Entfernen-Seite ➡️", style=discord.ButtonStyle.secondary, row=1)
-        self.message_id = message_id
-        self.page = page
-        self.users = users
-
-    async def callback(self, interaction):
-        max_page = max(0, (len(self.users)-1)//25)
-        page = min(self.page + 1, max_page)
-        await update_extraction_message(interaction, self.message_id, remove_page=page)
-
-class AddUserSelect(discord.ui.Select):
-    def __init__(self, message_id, addable, page):
-        page_size = 25
-        start = page * page_size
-        end = start + page_size
-        page_addable = addable[start:end]
-        options = [discord.SelectOption(label=u) for u in page_addable]
-        super().__init__(placeholder=f"User hinzufügen... (Seite {page+1})", min_values=1, max_values=len(options), options=options)
-        self.message_id = message_id
-        self.page = page
-
-    async def callback(self, interaction):
-        data = await extraction_messages_manager.load()
-        selected = self.values
-        users = data.get(str(self.message_id), {}).get("users", [])
-        for u in selected:
-            if u not in users:
-                users.append(u)
-        data[str(self.message_id)]["users"] = users
-        await extraction_messages_manager.save(data)
-        # Bleibe auf der aktuellen Seite, außer sie ist jetzt leer
-        all_members = [m.display_name for m in interaction.guild.members if not m.bot]
-        addable = [u for u in all_members if u not in users]
-        max_page = max(0, (len(addable)-1)//25)
-        page = min(self.page, max_page)
-        await update_extraction_message(interaction, self.message_id, add_page=page)
-
-class AddPrevPageButton(discord.ui.Button):
-    def __init__(self, message_id, page):
-        super().__init__(label="⬅️ Hinzufügen-Seite", style=discord.ButtonStyle.secondary, row=2)
-        self.message_id = message_id
-        self.page = page
-
-    async def callback(self, interaction):
-        page = max(0, self.page - 1)
-        await update_extraction_message(interaction, self.message_id, add_page=page)
-
-class AddNextPageButton(discord.ui.Button):
-    def __init__(self, message_id, addable, page):
-        super().__init__(label="Hinzufügen-Seite ➡️", style=discord.ButtonStyle.secondary, row=2)
-        self.message_id = message_id
-        self.page = page
-        self.addable = addable
-
-    async def callback(self, interaction):
-        max_page = max(0, (len(self.addable)-1)//25)
-        page = min(self.page + 1, max_page)
-        await update_extraction_message(interaction, self.message_id, add_page=page)
-
-# update_extraction_message bekommt jetzt die Seiten als Parameter
-async def update_extraction_message(interaction, message_id, remove_page=0, add_page=0):
-    data = await extraction_messages_manager.load()
-    users = data.get(str(message_id), {}).get("users", [])
-    merged_from = data.get(str(message_id), {}).get("merged_from", [])
-    can_undo = data.get(str(message_id), {}).get("history") is not None
-    embed = discord.Embed(title="Extrahierte Nutzer", description="\n".join(users))
-    if merged_from:
-        embed.set_footer(text=f"Gemerged aus: {', '.join(str(mid) for mid in merged_from)}")
-    view = ExtractionView(message_id, users, interaction.guild, merged_from, can_undo, remove_page=remove_page, add_page=add_page)
-    msg = await interaction.channel.fetch_message(int(message_id))
-    await msg.edit(embed=embed, view=view)
-    await interaction.response.defer()
-
-async def merge_extraction_messages(msg_id1, msg_id2, interaction):
-    data = await extraction_messages_manager.load()
-    users1 = data.get(str(msg_id1), {}).get("users", [])
-    users2 = data.get(str(msg_id2), {}).get("users", [])
-    merged = list(dict.fromkeys(users1 + users2))  # Reihenfolge erhalten, Duplikate raus
-    # Speichere History für Undo
-    data[str(msg_id1)]["history"] = {
-        "users": users1.copy(),
-        "merged_from": data[str(msg_id1)].get("merged_from", []).copy()
-    }
-    data[str(msg_id1)]["users"] = merged
-    data[str(msg_id1)]["merged_from"] = [msg_id1, msg_id2]
-    await extraction_messages_manager.save(data)
-    await update_extraction_message(interaction, msg_id1)
-
-async def find_adjacent_extraction_message(channel, current_msg_id, direction="prev"):
-    data = await extraction_messages_manager.load()
-    current_msg_id = int(current_msg_id)
-    prev = None
-    found = False
-    async for msg in channel.history(limit=50, oldest_first=True):
-        if msg.id == current_msg_id:
-            found = True
-            continue
-        if found and direction == "next" and msg.author.bot and str(msg.id) in data:
-            return msg
-        if not found and direction == "prev" and msg.author.bot and str(msg.id) in data:
-            prev = msg
-    return prev if direction == "prev" else None
-
-class MergePrevButton(discord.ui.Button):
-    def __init__(self, message_id):
-        super().__init__(label="Mit vorheriger mergen", style=discord.ButtonStyle.primary)
-        self.message_id = message_id
-
-    async def callback(self, interaction):
-        prev_msg = await find_adjacent_extraction_message(interaction.channel, self.message_id, direction="prev")
-        if prev_msg:
-            await merge_extraction_messages(self.message_id, prev_msg.id, interaction)
-        else:
-            await interaction.response.send_message("Keine vorherige Extraction-Nachricht gefunden.", ephemeral=True)
-
-class MergeNextButton(discord.ui.Button):
-    def __init__(self, message_id):
-        super().__init__(label="Mit nächster mergen", style=discord.ButtonStyle.primary)
-        self.message_id = message_id
-
-    async def callback(self, interaction):
-        next_msg = await find_adjacent_extraction_message(interaction.channel, self.message_id, direction="next")
-        if next_msg:
-            await merge_extraction_messages(self.message_id, next_msg.id, interaction)
-        else:
-            await interaction.response.send_message("Keine nächste Extraction-Nachricht gefunden.", ephemeral=True)
-
-class UndoMergeButton(discord.ui.Button):
-    def __init__(self, message_id):
-        super().__init__(label="Merge rückgängig", style=discord.ButtonStyle.danger)
-        self.message_id = message_id
-
-    async def callback(self, interaction):
-        data = await extraction_messages_manager.load()
-        history = data.get(str(self.message_id), {}).get("history")
-        if history:
-            data[str(self.message_id)]["users"] = history["users"]
-            data[str(self.message_id)]["merged_from"] = history["merged_from"]
-            data[str(self.message_id)]["history"] = None
-            await extraction_messages_manager.save(data)
-            await update_extraction_message(interaction, self.message_id)
-        else:
-            await interaction.response.send_message("Kein Merge zum Rückgängig machen.", ephemeral=True)
+        # extract users from image
+        users = textExtract.extractNamesFromImage(image_path, nicknames)
+        os.remove(image_path)
+        
+        # Filter users to only include those with company roles
+        filtered_users = []
+        for username in users:
+            # Find the member with this username
+            for member in guild.members:
+                pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
+                regex = pattern_to_regex(pattern)
+                match = regex.match(member.display_name)
+                if match:
+                    base_name = match.group("name").strip()
+                else:
+                    base_name = member.display_name
+                
+                if base_name == username:
+                    # Check if member has company role
+                    if await has_company_role(member):
+                        filtered_users.append(username)
+                    break
+        
+        return filtered_users
+    
+    # Delete tmp file
+    os.remove(image_path)
+    return []
 
 bot.run(DISCORD_TOKEN)
 
