@@ -5532,9 +5532,12 @@ class ExtractedUsersView(discord.ui.View):
     async def _add_user_select_menus(self):
         # Create remove user select menu first (if there are users to remove)
         if self.user_list:
+            # Sort the user list alphabetically
+            sorted_users = sorted(self.user_list, key=str.casefold)
+            
             # Create chunks of up to 25 users for removal menus
-            for i in range(0, len(self.user_list), 25):
-                chunk = self.user_list[i:i+25]
+            for i in range(0, len(sorted_users), 25):
+                chunk = sorted_users[i:i+25]
                 remove_options = []
                 
                 for user_name in chunk:
@@ -5559,21 +5562,12 @@ class ExtractedUsersView(discord.ui.View):
                     )
                     self.add_item(remove_menu)
         
-        # Get all members with company roles
-        company_members = []
+        # Get all members with company roles and extract their base names
+        company_members_with_names = []
         
         # This could be a slow operation for large guilds
         for member in self.guild.members:
             if await has_company_role(member):
-                company_members.append(member)
-        
-        # Create select menus for adding company members
-        # Process in chunks of 25 (Discord's limit for select options)
-        for i in range(0, len(company_members), 25):
-            chunk = company_members[i:i+25]
-            add_options = []
-            
-            for member in chunk:
                 # Get the base name
                 pattern = role_name_update_settings_cache.get("global_pattern", "{name}")
                 regex = pattern_to_regex(pattern)
@@ -5582,19 +5576,31 @@ class ExtractedUsersView(discord.ui.View):
                     base_name = match.group("name").strip()
                 else:
                     base_name = member.display_name
-                
+                    
                 # Only add if not already in the list
                 if base_name not in self.user_list:
-                    if len(base_name) > 100:
-                        # Truncate label if too long for SelectOption
-                        display_name = base_name[:97] + "..."
-                    else:
-                        display_name = base_name
-                        
-                    add_options.append(discord.SelectOption(
-                        label=display_name,
-                        value=base_name
-                    ))
+                    company_members_with_names.append((base_name, member))
+        
+        # Sort by the base name (case insensitive)
+        company_members_with_names.sort(key=lambda x: x[0].casefold())
+        
+        # Create select menus for adding company members
+        # Process in chunks of 25 (Discord's limit for select options)
+        for i in range(0, len(company_members_with_names), 25):
+            chunk = company_members_with_names[i:i+25]
+            add_options = []
+            
+            for base_name, member in chunk:
+                if len(base_name) > 100:
+                    # Truncate label if too long for SelectOption
+                    display_name = base_name[:97] + "..."
+                else:
+                    display_name = base_name
+                    
+                add_options.append(discord.SelectOption(
+                    label=display_name,
+                    value=base_name
+                ))
             
             if add_options:
                 add_menu = UserSelectMenu(
