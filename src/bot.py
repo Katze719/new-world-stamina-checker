@@ -1039,13 +1039,21 @@ async def on_message(message: discord.Message):
     if watch_user_exctaction_channel and str(message.channel.id) == str(watch_user_exctaction_channel):
         users = await extractUsers(message)    
         if users:
-            # Create embed and view
-            view = ExtractedUsersView(message.guild, users)
-            embed = view._create_embed()
-            sent_message = await message.channel.send(embed=embed, view=view)
+            # Send an initial embed
+            embed = discord.Embed(
+                title="Extrahierte Nutzer",
+                description="Lade Nutzer-Liste...",
+                color=discord.Color.blue()
+            )
+            sent_message = await message.channel.send(embed=embed)
             
-            # Save message ID in the view for reference
-            view.message_id = sent_message.id
+            # Create embed and view, then wait for select menus to be initialized
+            view = ExtractedUsersView(message.guild, users, message=sent_message)
+            view = await view.initialize_select_menus()
+            embed = view._create_embed()
+            
+            # Update the message with the complete view
+            await sent_message.edit(embed=embed, view=view)
         elif message.attachments:
             # If we had an image but no company users were found, inform the user
             await message.channel.send("Keine Nutzer mit Kompanie-Rolle im Bild gefunden.")
@@ -5256,7 +5264,7 @@ async def process_raidhelper_command(interaction: discord.Interaction, message_i
                 bracket_match = re.match(r'^(.*?)\s*\[.*\]$', member.display_name)
                 if bracket_match:
                     return bracket_match.group(1).strip()
-                    
+                        
                 return member.display_name
         
         # Process the Raidhelper message
@@ -5383,11 +5391,13 @@ class UserSelectMenu(discord.ui.Select):
         await self.view.update_user_list(interaction, self.values, self.custom_id)
 
 class ExtractedUsersView(discord.ui.View):
-    def __init__(self, guild, user_list, message_id=None, prev_merge_data=None):
+    def __init__(self, guild, user_list, message=None, prev_merge_data=None):
         super().__init__(timeout=None)
         self.guild = guild
         self.user_list = user_list
-        self.message_id = message_id
+        self.message = message
+        self.message_id = message.id if message else None
+        self.channel = message.channel if message else None
         self.original_user_list = user_list.copy() if prev_merge_data is None else prev_merge_data.get("original_user_list", user_list.copy())
         self.merged_messages = [] if prev_merge_data is None else prev_merge_data.get("merged_messages", [])
         self.merged_users = [] if prev_merge_data is None else prev_merge_data.get("merged_users", [])
@@ -5399,20 +5409,12 @@ class ExtractedUsersView(discord.ui.View):
             "merged_users": self.merged_users
         }
         
-        self._refresh_components()
+        # Only add basic components initially - select menus will be added later
+        self._add_basic_components()
     
-    def _refresh_components(self):
+    def _add_basic_components(self):
         # Clear existing items
         self.clear_items()
-        
-        # Add merge button
-        merge_button = discord.ui.Button(
-            style=discord.ButtonStyle.primary,
-            label="Mit anderer Liste zusammenführen",
-            custom_id="merge_button"
-        )
-        merge_button.callback = self.merge_button_callback
-        self.add_item(merge_button)
         
         # Add undo button if there are merges
         if self.merged_messages:
@@ -5423,10 +5425,110 @@ class ExtractedUsersView(discord.ui.View):
             )
             undo_button.callback = self.undo_button_callback
             self.add_item(undo_button)
-        
-        # Add user select menus
-        asyncio.create_task(self._add_user_select_menus())
     
+    def _refresh_components(self):
+        # Clear existing items
+        self.clear_items()
+        
+        # Add undo button if there are merges
+        if self.merged_messages:
+            undo_button = discord.ui.Button(
+                style=discord.ButtonStyle.danger,
+                label="Zusammenführung rückgängig machen",
+                custom_id="undo_button"
+            )
+            undo_button.callback = self.undo_button_callback
+            self.add_item(undo_button)
+    
+    async def initialize_select_menus(self):
+        # First add the select menus for adding/removing users
+        await self._add_user_select_menus()
+        
+        # Then scan for mergeable messages and add merge select menu
+        if self.channel:
+            await self._add_merge_select_menu()
+            
+        return self
+    
+    async def _add_merge_select_menu(self):
+        if not self.channel or not self.message:
+            return
+            
+        # Scan the channel for mergeable messages (user lists from this bot)
+        mergeable_messages = []
+        async for message in self.channel.history(limit=100):
+            # Skip the current message
+            if message.id == self.message_id:
+                continue
+                
+            # Check if it's from the bot and has embeds with user lists
+            if (message.author.id == self.message.guild.me.id and 
+                message.embeds and 
+                any(field.name.startswith("Nutzer Gruppe") for field in message.embeds[0].fields) and
+                message.id not in self.merged_messages):
+                mergeable_messages.append(message)
+                
+                # Limit to 25 messages
+                if len(mergeable_messages) >= 25:
+                    break
+        
+        if not mergeable_messages:
+            # If no mergeable messages found, add a regular merge button
+            merge_button = discord.ui.Button(
+                style=discord.ButtonStyle.primary,
+                label="Mit anderer Liste zusammenführen",
+                custom_id="merge_button"
+            )
+            merge_button.callback = self.merge_button_callback
+            self.add_item(merge_button)
+            return
+            
+        # Create options for the select menu
+        merge_options = []
+        for msg in mergeable_messages:
+            # Get the user count from the embed fields
+            user_count = 0
+            
+            # Format time as a human-readable string
+            now = datetime.datetime.now(datetime.timezone.utc)
+            time_diff = now - msg.created_at
+            
+            if time_diff.days > 0:
+                time_str = f"vor {time_diff.days} Tagen"
+            elif time_diff.seconds >= 3600:
+                hours = time_diff.seconds // 3600
+                time_str = f"vor {hours} Stunden"
+            elif time_diff.seconds >= 60:
+                minutes = time_diff.seconds // 60
+                time_str = f"vor {minutes} Minuten"
+            else:
+                time_str = "gerade eben"
+            
+            for field in msg.embeds[0].fields:
+                if field.name.startswith("Nutzer Gruppe"):
+                    user_count += field.value.count("• ")
+            
+            # Create a descriptive label (with timestamp and user count)
+            label = f"ID: {msg.id} ({user_count} Nutzer, {time_str})"
+            if len(label) > 100:
+                label = f"ID: {msg.id} ({user_count} Nutzer)"
+                
+            merge_options.append(discord.SelectOption(
+                label=label,
+                value=str(msg.id),
+                description=f"Erstellt {time_str}"[:100]
+            ))
+        
+        # Create the select menu
+        if merge_options:
+            merge_menu = discord.ui.Select(
+                placeholder="Mit Nachricht zusammenführen...",
+                options=merge_options,
+                custom_id="merge_select"
+            )
+            merge_menu.callback = self.merge_select_callback
+            self.add_item(merge_menu)
+
     async def _add_user_select_menus(self):
         # Create remove user select menu first (if there are users to remove)
         if self.user_list:
@@ -5441,7 +5543,7 @@ class ExtractedUsersView(discord.ui.View):
                         display_name = user_name[:97] + "..."
                     else:
                         display_name = user_name
-                    
+                        
                     remove_options.append(discord.SelectOption(
                         label=display_name,
                         value=user_name
@@ -5488,7 +5590,7 @@ class ExtractedUsersView(discord.ui.View):
                         display_name = base_name[:97] + "..."
                     else:
                         display_name = base_name
-                    
+                        
                     add_options.append(discord.SelectOption(
                         label=display_name,
                         value=base_name
@@ -5505,6 +5607,61 @@ class ExtractedUsersView(discord.ui.View):
     
     async def merge_button_callback(self, interaction: discord.Interaction):
         await interaction.response.send_modal(MergeModal(self))
+        
+    async def merge_select_callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            message_id = int(interaction.data["values"][0])
+            
+            try:
+                message = await self.channel.fetch_message(message_id)
+                
+                # Check if it's a bot message with an embed
+                if message.author.id != interaction.client.user.id or not message.embeds:
+                    await interaction.followup.send("Die ausgewählte Nachricht ist keine gültige Nutzerliste.", ephemeral=True)
+                    return
+                
+                # Extract users from the embed
+                users_to_merge = []
+                for field in message.embeds[0].fields:
+                    if field.name.startswith("Nutzer Gruppe"):
+                        for line in field.value.split("\n"):
+                            if line.startswith("• "):
+                                user = line[2:]  # Remove "• " prefix
+                                if user not in users_to_merge:
+                                    users_to_merge.append(user)
+                
+                # Merge the lists
+                original_count = len(self.user_list)
+                for user in users_to_merge:
+                    if user not in self.user_list:
+                        self.user_list.append(user)
+                
+                # Update merged data
+                self.merged_messages.append(message_id)
+                self.merged_users.extend([u for u in users_to_merge if u not in self.merged_users])
+                
+                # Update the merge data
+                self.merge_data = {
+                    "original_user_list": self.original_user_list,
+                    "merged_messages": self.merged_messages,
+                    "merged_users": self.merged_users
+                }
+                
+                # Create updated embed and refresh components
+                embed = self._create_embed()
+                self._refresh_components()
+                await self.initialize_select_menus()
+                await interaction.message.edit(embed=embed, view=self)
+                
+                await interaction.followup.send(f"Listen erfolgreich zusammengeführt. {len(self.user_list) - original_count} neue Nutzer hinzugefügt.", ephemeral=True)
+                
+            except discord.NotFound:
+                await interaction.followup.send("Nachricht nicht gefunden. Bitte wähle eine andere Nachricht.", ephemeral=True)
+            
+        except (ValueError, KeyError, IndexError):
+            await interaction.followup.send("Es ist ein Fehler aufgetreten. Bitte versuche es erneut.", ephemeral=True)
     
     async def undo_button_callback(self, interaction: discord.Interaction):
         if not self.merged_messages:
@@ -5526,6 +5683,7 @@ class ExtractedUsersView(discord.ui.View):
         # Update embed and components
         embed = self._create_embed()
         self._refresh_components()
+        await self.initialize_select_menus()
         await interaction.response.edit_message(embed=embed, view=self)
     
     async def update_user_list(self, interaction: discord.Interaction, values, custom_id):
@@ -5543,12 +5701,14 @@ class ExtractedUsersView(discord.ui.View):
         # Update embed and components
         embed = self._create_embed()
         self._refresh_components()
+        # Re-initialize select menus to reflect the updated user list
+        await self.initialize_select_menus()
         await interaction.message.edit(embed=embed, view=self)
     
     def _create_embed(self):
         embed = discord.Embed(
             title="Extrahierte Nutzer",
-            description="Aus dem Bild extrahierte Nutzer:",
+            description=f"Aus dem Bild extrahierte Nutzer (ID: {self.message_id}):",
             color=discord.Color.blue()
         )
         
@@ -5557,28 +5717,28 @@ class ExtractedUsersView(discord.ui.View):
             chunk = self.user_list[i:i+25]
             field_value = "\n".join([f"• {user}" for user in chunk])
             if not field_value:
-                field_value = "No users in this group"
+                field_value = "Keine Nutzer in dieser Gruppe"
             embed.add_field(
-                name=f"User Group {i//25 + 1}",
+                name=f"Nutzer Gruppe {i//25 + 1}",
                 value=field_value,
                 inline=False
             )
         
         # Add merged info if any
         if self.merged_messages:
-            merged_info = "\n".join([f"• Message ID: {msg_id}" for msg_id in self.merged_messages])
+            merged_info = "\n".join([f"• Nachrichten-ID: {msg_id}" for msg_id in self.merged_messages])
             embed.add_field(
-                name="Merged with",
+                name="Zusammengeführt mit",
                 value=merged_info,
                 inline=False
             )
         
         return embed
 
-class MergeModal(discord.ui.Modal, title="Merge User Lists"):
+class MergeModal(discord.ui.Modal, title="Nutzerlisten zusammenführen"):
     message_id = discord.ui.TextInput(
-        label="Message ID to merge with",
-        placeholder="Enter the message ID of another user list",
+        label="Nachrichten-ID zum Zusammenführen",
+        placeholder="Gib die Nachrichten-ID einer anderen Nutzerliste ein",
         required=True
     )
     
@@ -5591,20 +5751,24 @@ class MergeModal(discord.ui.Modal, title="Merge User Lists"):
         
         try:
             message_id = int(self.message_id.value)
-            channel = interaction.channel
+            channel = self.parent_view.channel
+            
+            if not channel:
+                await interaction.followup.send("Konnte den Channel nicht finden. Bitte versuche es erneut.", ephemeral=True)
+                return
             
             try:
                 message = await channel.fetch_message(message_id)
                 
                 # Check if it's a bot message with an embed
                 if message.author.id != interaction.client.user.id or not message.embeds:
-                    await interaction.followup.send("The specified message is not a valid user list.", ephemeral=True)
+                    await interaction.followup.send("Die angegebene Nachricht ist keine gültige Nutzerliste.", ephemeral=True)
                     return
                 
                 # Extract users from the embed
                 users_to_merge = []
                 for field in message.embeds[0].fields:
-                    if field.name.startswith("User Group"):
+                    if field.name.startswith("Nutzer Gruppe"):
                         for line in field.value.split("\n"):
                             if line.startswith("• "):
                                 user = line[2:]  # Remove "• " prefix
@@ -5631,15 +5795,16 @@ class MergeModal(discord.ui.Modal, title="Merge User Lists"):
                 # Create updated embed and refresh components
                 embed = self.parent_view._create_embed()
                 self.parent_view._refresh_components()
+                await self.parent_view.initialize_select_menus()
                 await interaction.message.edit(embed=embed, view=self.parent_view)
                 
-                await interaction.followup.send(f"Successfully merged lists. Added {len(self.parent_view.user_list) - original_count} new users.", ephemeral=True)
+                await interaction.followup.send(f"Listen erfolgreich zusammengeführt. {len(self.parent_view.user_list) - original_count} neue Nutzer hinzugefügt.", ephemeral=True)
                 
             except discord.NotFound:
-                await interaction.followup.send("Message not found. Please check the message ID.", ephemeral=True)
+                await interaction.followup.send("Nachricht nicht gefunden. Bitte überprüfe die Nachrichten-ID.", ephemeral=True)
             
         except ValueError:
-            await interaction.followup.send("Invalid message ID. Please enter a valid number.", ephemeral=True)
+            await interaction.followup.send("Ungültige Nachrichten-ID. Bitte gib eine gültige Zahl ein.", ephemeral=True)
 
 async def extractUsers(message: discord.Message):
     # check if user sent a image
