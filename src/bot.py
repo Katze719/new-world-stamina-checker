@@ -5341,22 +5341,30 @@ async def debug_roles(
 # --- Extraction View und Hilfsfunktionen ---
 # Alle Views werden mit timeout=None erstellt, damit die Buttons dauerhaft funktionieren.
 class ExtractionView(discord.ui.View):
-    def __init__(self, message_id, users, guild, merged_from=None, can_undo=False):
+    def __init__(self, message_id, users, guild, merged_from=None, can_undo=False, remove_page=0, add_page=0):
         super().__init__(timeout=None)
         self.message_id = message_id
         self.guild = guild
+        self.remove_page = remove_page
+        self.add_page = add_page
         self.update_selects(users, merged_from, can_undo)
 
     def update_selects(self, users, merged_from, can_undo):
         self.clear_items()
-        # Entfernen-Select
+        # Entfernen-Select mit Pagination
         if users:
-            self.add_item(RemoveUserSelect(self.message_id, users))
-        # Hinzufügen-Select
+            self.add_item(RemoveUserSelect(self.message_id, users, self.remove_page))
+            if len(users) > 25:
+                self.add_item(RemovePrevPageButton(self.message_id, self.remove_page))
+                self.add_item(RemoveNextPageButton(self.message_id, users, self.remove_page))
+        # Hinzufügen-Select mit Pagination
         all_members = [m.display_name for m in self.guild.members if not m.bot]
         addable = [u for u in all_members if u not in users]
         if addable:
-            self.add_item(AddUserSelect(self.message_id, addable))
+            self.add_item(AddUserSelect(self.message_id, addable, self.add_page))
+            if len(addable) > 25:
+                self.add_item(AddPrevPageButton(self.message_id, self.add_page))
+                self.add_item(AddNextPageButton(self.message_id, addable, self.add_page))
         # Merge-Buttons
         self.add_item(MergePrevButton(self.message_id))
         self.add_item(MergeNextButton(self.message_id))
@@ -5365,10 +5373,15 @@ class ExtractionView(discord.ui.View):
             self.add_item(UndoMergeButton(self.message_id))
 
 class RemoveUserSelect(discord.ui.Select):
-    def __init__(self, message_id, users):
-        options = [discord.SelectOption(label=u) for u in users]
-        super().__init__(placeholder="User entfernen...", min_values=1, max_values=len(users), options=options)
+    def __init__(self, message_id, users, page):
+        page_size = 25
+        start = page * page_size
+        end = start + page_size
+        page_users = users[start:end]
+        options = [discord.SelectOption(label=u) for u in page_users]
+        super().__init__(placeholder=f"User entfernen... (Seite {page+1})", min_values=1, max_values=len(options), options=options)
         self.message_id = message_id
+        self.page = page
 
     async def callback(self, interaction):
         data = await extraction_messages_manager.load()
@@ -5377,13 +5390,43 @@ class RemoveUserSelect(discord.ui.Select):
         users = [u for u in users if u not in selected]
         data[str(self.message_id)]["users"] = users
         await extraction_messages_manager.save(data)
-        await update_extraction_message(interaction, self.message_id)
+        # Bleibe auf der aktuellen Seite, außer sie ist jetzt leer
+        max_page = max(0, (len(users)-1)//25)
+        page = min(self.page, max_page)
+        await update_extraction_message(interaction, self.message_id, remove_page=page)
+
+class RemovePrevPageButton(discord.ui.Button):
+    def __init__(self, message_id, page):
+        super().__init__(label="⬅️ Entfernen-Seite", style=discord.ButtonStyle.secondary, row=1)
+        self.message_id = message_id
+        self.page = page
+
+    async def callback(self, interaction):
+        page = max(0, self.page - 1)
+        await update_extraction_message(interaction, self.message_id, remove_page=page)
+
+class RemoveNextPageButton(discord.ui.Button):
+    def __init__(self, message_id, users, page):
+        super().__init__(label="Entfernen-Seite ➡️", style=discord.ButtonStyle.secondary, row=1)
+        self.message_id = message_id
+        self.page = page
+        self.users = users
+
+    async def callback(self, interaction):
+        max_page = max(0, (len(self.users)-1)//25)
+        page = min(self.page + 1, max_page)
+        await update_extraction_message(interaction, self.message_id, remove_page=page)
 
 class AddUserSelect(discord.ui.Select):
-    def __init__(self, message_id, addable):
-        options = [discord.SelectOption(label=u) for u in addable]
-        super().__init__(placeholder="User hinzufügen...", min_values=1, max_values=len(addable), options=options)
+    def __init__(self, message_id, addable, page):
+        page_size = 25
+        start = page * page_size
+        end = start + page_size
+        page_addable = addable[start:end]
+        options = [discord.SelectOption(label=u) for u in page_addable]
+        super().__init__(placeholder=f"User hinzufügen... (Seite {page+1})", min_values=1, max_values=len(options), options=options)
         self.message_id = message_id
+        self.page = page
 
     async def callback(self, interaction):
         data = await extraction_messages_manager.load()
@@ -5394,7 +5437,78 @@ class AddUserSelect(discord.ui.Select):
                 users.append(u)
         data[str(self.message_id)]["users"] = users
         await extraction_messages_manager.save(data)
-        await update_extraction_message(interaction, self.message_id)
+        # Bleibe auf der aktuellen Seite, außer sie ist jetzt leer
+        all_members = [m.display_name for m in interaction.guild.members if not m.bot]
+        addable = [u for u in all_members if u not in users]
+        max_page = max(0, (len(addable)-1)//25)
+        page = min(self.page, max_page)
+        await update_extraction_message(interaction, self.message_id, add_page=page)
+
+class AddPrevPageButton(discord.ui.Button):
+    def __init__(self, message_id, page):
+        super().__init__(label="⬅️ Hinzufügen-Seite", style=discord.ButtonStyle.secondary, row=2)
+        self.message_id = message_id
+        self.page = page
+
+    async def callback(self, interaction):
+        page = max(0, self.page - 1)
+        await update_extraction_message(interaction, self.message_id, add_page=page)
+
+class AddNextPageButton(discord.ui.Button):
+    def __init__(self, message_id, addable, page):
+        super().__init__(label="Hinzufügen-Seite ➡️", style=discord.ButtonStyle.secondary, row=2)
+        self.message_id = message_id
+        self.page = page
+        self.addable = addable
+
+    async def callback(self, interaction):
+        max_page = max(0, (len(self.addable)-1)//25)
+        page = min(self.page + 1, max_page)
+        await update_extraction_message(interaction, self.message_id, add_page=page)
+
+# update_extraction_message bekommt jetzt die Seiten als Parameter
+async def update_extraction_message(interaction, message_id, remove_page=0, add_page=0):
+    data = await extraction_messages_manager.load()
+    users = data.get(str(message_id), {}).get("users", [])
+    merged_from = data.get(str(message_id), {}).get("merged_from", [])
+    can_undo = data.get(str(message_id), {}).get("history") is not None
+    embed = discord.Embed(title="Extrahierte Nutzer", description="\n".join(users))
+    if merged_from:
+        embed.set_footer(text=f"Gemerged aus: {', '.join(str(mid) for mid in merged_from)}")
+    view = ExtractionView(message_id, users, interaction.guild, merged_from, can_undo, remove_page=remove_page, add_page=add_page)
+    msg = await interaction.channel.fetch_message(int(message_id))
+    await msg.edit(embed=embed, view=view)
+    await interaction.response.defer()
+
+async def merge_extraction_messages(msg_id1, msg_id2, interaction):
+    data = await extraction_messages_manager.load()
+    users1 = data.get(str(msg_id1), {}).get("users", [])
+    users2 = data.get(str(msg_id2), {}).get("users", [])
+    merged = list(dict.fromkeys(users1 + users2))  # Reihenfolge erhalten, Duplikate raus
+    # Speichere History für Undo
+    data[str(msg_id1)]["history"] = {
+        "users": users1.copy(),
+        "merged_from": data[str(msg_id1)].get("merged_from", []).copy()
+    }
+    data[str(msg_id1)]["users"] = merged
+    data[str(msg_id1)]["merged_from"] = [msg_id1, msg_id2]
+    await extraction_messages_manager.save(data)
+    await update_extraction_message(interaction, msg_id1)
+
+async def find_adjacent_extraction_message(channel, current_msg_id, direction="prev"):
+    data = await extraction_messages_manager.load()
+    current_msg_id = int(current_msg_id)
+    prev = None
+    found = False
+    async for msg in channel.history(limit=50, oldest_first=True):
+        if msg.id == current_msg_id:
+            found = True
+            continue
+        if found and direction == "next" and msg.author.bot and str(msg.id) in data:
+            return msg
+        if not found and direction == "prev" and msg.author.bot and str(msg.id) in data:
+            prev = msg
+    return prev if direction == "prev" else None
 
 class MergePrevButton(discord.ui.Button):
     def __init__(self, message_id):
@@ -5436,49 +5550,6 @@ class UndoMergeButton(discord.ui.Button):
             await update_extraction_message(interaction, self.message_id)
         else:
             await interaction.response.send_message("Kein Merge zum Rückgängig machen.", ephemeral=True)
-
-async def update_extraction_message(interaction, message_id):
-    data = await extraction_messages_manager.load()
-    users = data.get(str(message_id), {}).get("users", [])
-    merged_from = data.get(str(message_id), {}).get("merged_from", [])
-    can_undo = data.get(str(message_id), {}).get("history") is not None
-    embed = discord.Embed(title="Extrahierte Nutzer", description="\n".join(users))
-    if merged_from:
-        embed.set_footer(text=f"Gemerged aus: {', '.join(str(mid) for mid in merged_from)}")
-    view = ExtractionView(message_id, users, interaction.guild, merged_from, can_undo)
-    msg = await interaction.channel.fetch_message(int(message_id))
-    await msg.edit(embed=embed, view=view)
-    await interaction.response.defer()
-
-async def merge_extraction_messages(msg_id1, msg_id2, interaction):
-    data = await extraction_messages_manager.load()
-    users1 = data.get(str(msg_id1), {}).get("users", [])
-    users2 = data.get(str(msg_id2), {}).get("users", [])
-    merged = list(dict.fromkeys(users1 + users2))  # Reihenfolge erhalten, Duplikate raus
-    # Speichere History für Undo
-    data[str(msg_id1)]["history"] = {
-        "users": users1.copy(),
-        "merged_from": data[str(msg_id1)].get("merged_from", []).copy()
-    }
-    data[str(msg_id1)]["users"] = merged
-    data[str(msg_id1)]["merged_from"] = [msg_id1, msg_id2]
-    await extraction_messages_manager.save(data)
-    await update_extraction_message(interaction, msg_id1)
-
-async def find_adjacent_extraction_message(channel, current_msg_id, direction="prev"):
-    data = await extraction_messages_manager.load()
-    current_msg_id = int(current_msg_id)
-    prev = None
-    found = False
-    async for msg in channel.history(limit=50, oldest_first=True):
-        if msg.id == current_msg_id:
-            found = True
-            continue
-        if found and direction == "next" and msg.author.bot and str(msg.id) in data:
-            return msg
-        if not found and direction == "prev" and msg.author.bot and str(msg.id) in data:
-            prev = msg
-    return prev if direction == "prev" else None
 
 bot.run(DISCORD_TOKEN)
 
