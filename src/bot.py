@@ -5568,14 +5568,15 @@ class ExtractedUsersView(discord.ui.View):
         # This could be a slow operation for large guilds
         for member in self.guild.members:
             if await has_company_role(member):
-                # Get the base name
+                # Get the base name using the same parsing logic as extractUsers
                 pattern = role_name_update_settings_cache.get("global_pattern", "{name}")
                 regex = pattern_to_regex(pattern)
                 match = regex.match(member.display_name)
                 if match:
                     base_name = match.group("name").strip()
                 else:
-                    base_name = member.display_name
+                    # Use the same fallback method
+                    base_name = _get_base_name_fallback(member.display_name)
                     
                 # Only add if not already in the list
                 if base_name not in self.user_list:
@@ -5718,9 +5719,12 @@ class ExtractedUsersView(discord.ui.View):
             color=discord.Color.blue()
         )
         
+        # Sort the user list alphabetically
+        sorted_users = sorted(self.user_list, key=str.casefold)
+        
         # Format user list (up to 25 per field)
-        for i in range(0, len(self.user_list), 25):
-            chunk = self.user_list[i:i+25]
+        for i in range(0, len(sorted_users), 25):
+            chunk = sorted_users[i:i+25]
             field_value = "\n".join([f"• {user}" for user in chunk])
             if not field_value:
                 field_value = "Keine Nutzer in dieser Gruppe"
@@ -5825,8 +5829,8 @@ async def extractUsers(message: discord.Message):
 
     guild = message.guild
     if guild:
-        # create list with user nicknames
-        nicknames = []
+        # create list with user nicknames and their corresponding member objects
+        nicknames_with_members = []
         for member in guild.members:
             pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
             regex = pattern_to_regex(pattern)
@@ -5834,26 +5838,23 @@ async def extractUsers(message: discord.Message):
             if match:
                 base_name = match.group("name").strip()
             else:
-                base_name = member.display_name
-            nicknames.append(base_name)
+                # Try fallback methods if the pattern doesn't match
+                base_name = _get_base_name_fallback(member.display_name)
+                
+            nicknames_with_members.append((base_name, member))
+            
+        # Extract just the nicknames for the OCR matching
+        nicknames = [name for name, _ in nicknames_with_members]
 
         # extract users from image
-        users = textExtract.extractNamesFromImage(image_path, nicknames)
+        extracted_names = textExtract.extractNamesFromImage(image_path, nicknames)
         os.remove(image_path)
         
         # Filter users to only include those with company roles
         filtered_users = []
-        for username in users:
+        for username in extracted_names:
             # Find the member with this username
-            for member in guild.members:
-                pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
-                regex = pattern_to_regex(pattern)
-                match = regex.match(member.display_name)
-                if match:
-                    base_name = match.group("name").strip()
-                else:
-                    base_name = member.display_name
-                
+            for base_name, member in nicknames_with_members:
                 if base_name == username:
                     # Check if member has company role
                     if await has_company_role(member):
@@ -5865,6 +5866,109 @@ async def extractUsers(message: discord.Message):
     # Delete tmp file
     os.remove(image_path)
     return []
+
+def _get_base_name_fallback(display_name):
+    """Fallback method to extract base name if the regex pattern doesn't match"""
+    # Try old pattern without level
+    old_pattern = "{name} [{icons}]"
+    old_regex = pattern_to_regex(old_pattern)
+    old_match = old_regex.match(display_name)
+    if old_match:
+        try:
+            return old_match.group("name").strip()
+        except (IndexError, KeyError):
+            pass
+    
+    # Einfacher Fallback: Suche nach Name vor eckigen Klammern
+    bracket_match = re.match(r'^(.*?)\s*\[.*\]$', display_name)
+    if bracket_match:
+        return bracket_match.group(1).strip()
+    
+    # If no pattern matches, just return the display name
+    return display_name
+
+async def _add_user_select_menus(self):
+    # Create remove user select menu first (if there are users to remove)
+    if self.user_list:
+        # Sort the user list alphabetically
+        sorted_users = sorted(self.user_list, key=str.casefold)
+        
+        # Create chunks of up to 25 users for removal menus
+        for i in range(0, len(sorted_users), 25):
+            chunk = sorted_users[i:i+25]
+            remove_options = []
+            
+            for user_name in chunk:
+                if len(user_name) > 100:
+                    # Truncate long names for SelectOption
+                    display_name = user_name[:97] + "..."
+                else:
+                    display_name = user_name
+                    
+                remove_options.append(discord.SelectOption(
+                    label=display_name,
+                    value=user_name
+                ))
+            
+            if remove_options:
+                chunk_num = i // 25
+                remove_menu = UserSelectMenu(
+                    placeholder=f"Nutzer entfernen (Gruppe {chunk_num + 1})...",
+                    options=remove_options,
+                    max_values=len(remove_options),
+                    custom_id=f"remove_users_{chunk_num}"
+                )
+                self.add_item(remove_menu)
+    
+    # Get all members with company roles and extract their base names
+    company_members_with_names = []
+    
+    # This could be a slow operation for large guilds
+    for member in self.guild.members:
+        if await has_company_role(member):
+            # Get the base name using the same parsing logic as extractUsers
+            pattern = role_name_update_settings_cache.get("global_pattern", "{name}")
+            regex = pattern_to_regex(pattern)
+            match = regex.match(member.display_name)
+            if match:
+                base_name = match.group("name").strip()
+            else:
+                # Use the same fallback method
+                base_name = _get_base_name_fallback(member.display_name)
+                
+            # Only add if not already in the list
+            if base_name not in self.user_list:
+                company_members_with_names.append((base_name, member))
+    
+    # Sort by the base name (case insensitive)
+    company_members_with_names.sort(key=lambda x: x[0].casefold())
+    
+    # Create select menus for adding company members
+    # Process in chunks of 25 (Discord's limit for select options)
+    for i in range(0, len(company_members_with_names), 25):
+        chunk = company_members_with_names[i:i+25]
+        add_options = []
+        
+        for base_name, member in chunk:
+            if len(base_name) > 100:
+                # Truncate label if too long for SelectOption
+                display_name = base_name[:97] + "..."
+            else:
+                display_name = base_name
+                
+            add_options.append(discord.SelectOption(
+                label=display_name,
+                value=base_name
+            ))
+        
+        if add_options:
+            add_menu = UserSelectMenu(
+                placeholder=f"Nutzer hinzufügen (Gruppe {i//25 + 1})...",
+                options=add_options,
+                max_values=len(add_options),
+                custom_id=f"add_users_{i//25}"
+            )
+            self.add_item(add_menu)
 
 bot.run(DISCORD_TOKEN)
 
