@@ -15,7 +15,7 @@ import traceback
 import io
 from logger import log
 
-EDITOR_MAILS = ["bot-300@black-beach-453214-f6.iam.gserviceaccount.com", "diekrankenpfleger@gmail.com", "cyradiss1986@gmail.com", "pauldorn1234@gmail.com"]
+EDITOR_MAILS = ["bot-300@black-beach-453214-f6.iam.gserviceaccount.com", "diekrankenpfleger@gmail.com", "cyradiss1986@gmail.com", "ladylilian96@gmail.com", "pauldorn1234@gmail.com"]
 
 # Setze die Locale auf Deutsch
 locale.setlocale(locale.LC_TIME, "de_DE.UTF-8")
