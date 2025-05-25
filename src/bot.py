@@ -4314,6 +4314,17 @@ async def help_command(interaction: discord.Interaction, category: Optional[str]
                     "name": "/list_class_roles",
                     "description": "Listet alle konfigurierten Klassen-Rollen auf.",
                     "example": "/list_class_roles",
+                },
+                {
+                    "name": "/set_kueken_role",
+                    "description": "Setzt die Küken-Rolle für Anfänger im Spreadsheet.",
+                    "example": "/set_kueken_role role:@Anfänger str_in_spreadsheet:Küken",
+                    "admin_only": True
+                },
+                {
+                    "name": "/remove_kueken_role",
+                    "description": "Entfernt eine Küken-Rolle.",
+                    "example": "/remove_kueken_role role:@Anfänger",
                     "admin_only": True
                 },
                 {
@@ -6002,6 +6013,31 @@ async def _add_user_select_menus(self):
                 custom_id=f"add_users_{i//25}"
             )
             self.add_item(add_menu)
+
+@tree.command(name="set_kueken_role", description="Setze die Küken Rolle")
+@app_commands.checks.has_permissions(administrator=True)
+async def set_kueken_role(interaction: discord.Interaction, role: discord.Role, str_in_spreadsheet: str):
+    roles = await spreadsheet_role_settings_manager.load()
+    if "kueken_role" not in roles:
+        roles["kueken_role"] = {}
+
+    roles["kueken_role"][str(role.id)] = str_in_spreadsheet
+    await spreadsheet_role_settings_manager.save(roles)
+    await interaction.response.send_message(f"Küken Rolle wurde erfolgreich gesetzt!", ephemeral=True)
+
+@tree.command(name="remove_kueken_role", description="Entferne die Küken Rolle")
+@app_commands.checks.has_permissions(administrator=True)
+async def remove_kueken_role(interaction: discord.Interaction, role: discord.Role):
+    roles = await spreadsheet_role_settings_manager.load()
+    if "kueken_role" not in roles:
+        roles["kueken_role"] = {}
+
+    if str(role.id) in roles["kueken_role"]:
+        del roles["kueken_role"][str(role.id)]
+        await spreadsheet_role_settings_manager.save(roles)
+        await interaction.response.send_message(f"Küken Rolle wurde erfolgreich entfernt!", ephemeral=True)
+    else:
+        await interaction.response.send_message(f"Küken Rolle nicht gefunden!", ephemeral=True)
 
 bot.run(DISCORD_TOKEN)
 

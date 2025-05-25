@@ -14,6 +14,7 @@ class Column(Enum):
     NAME = 'A'
     COMPANY = 'B'
     CLASS = 'C'
+    KUEKEN = 'F'
 
 # Offset for the first 9 entries
 OFFSET = 9
@@ -114,11 +115,26 @@ async def _update_member(client: gspread_asyncio.AsyncioGspreadClientManager, me
         'values': [[class_role]]
     })
 
+    # Set küken role
+    kueken_role = ""
+    if "kueken_role" in spreadsheet_role_settings:
+        for user_role_id in user_role_ids:
+            if str(user_role_id) in spreadsheet_role_settings["kueken_role"]:
+                kueken_role = spreadsheet_role_settings["kueken_role"][str(user_role_id)]
+                break
+    
+    batch_update.append({
+        'range': f"{Column.KUEKEN.value}{row_number}",
+        'values': [[kueken_role]]
+    })
+
     # Execute batch update
     await sheet.batch_update(batch_update, value_input_option=gspread.utils.ValueInputOption.raw)
 
     # Delete users from list that are not in discord
-    member_list = [full_parse(member) for member in member.guild.members if get_company(member) is not None or any([str(role.id) in spreadsheet_role_settings["class_role"] for role in member.roles])]
+    member_list = [full_parse(member) for member in member.guild.members if get_company(member) is not None or 
+                   any([str(role.id) in spreadsheet_role_settings.get("class_role", {}) for role in member.roles]) or
+                   any([str(role.id) in spreadsheet_role_settings.get("kueken_role", {}) for role in member.roles])]
     delete_batch_update = []
     for i, cell in enumerate(A_col):
         if cell and cell not in member_list:

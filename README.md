@@ -101,6 +101,9 @@ Seamlessly integrates with Google Sheets to manage and update:
 - `/set_class_role <role> <spreadsheet_value>`: Assign a class role to a spreadsheet value.
 - `/remove_class_role <role>`: Remove a class role.
 - `/list_class_roles`: List all configured class roles.
+- `/set_kueken_role <role> <spreadsheet_value>`: Assign a beginner (küken) role to a spreadsheet value.
+- `/remove_kueken_role <role>`: Remove a beginner (küken) role.
+- `/list_kueken_roles`: List all configured beginner (küken) roles.
 - `/set_channel_raidhelper_race <channel>`: Set the channel for RaidHelper races.
 - `/set_channel_raidhelper_war <channel>`: Set the channel for RaidHelper wars.
 - `/remove_channel_raidhelper_race`: Remove the channel for RaidHelper races.

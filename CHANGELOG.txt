@@ -1,3 +1,13 @@
+## Version 1.2.2-rc.25
+
+### **Neue Features & Verbesserungen**
+- **Küken-Rollen für Anfänger:**
+  - Neue Befehle zur Verwaltung von Anfänger-Rollen (Küken-Rollen) im Spreadsheet:
+    - `/set_kueken_role`: Setze eine Rolle als Küken-Rolle mit Spreadsheet-Wert
+    - `/remove_kueken_role`: Entferne eine Küken-Rolle
+  - Integration mit dem Spreadsheet-System, ähnlich zu Company- und Class-Rollen
+  - Automatische Erkennung von Küken-Rollen bei der Aktualisierung des Spreadsheets
+
 ## Version 1.2.1-rc.19
 
 ### **Neue Features & Verbesserungen**
@@ -15,7 +25,7 @@
 
 - **Verbesserte Raidhelper-Integration & Abwesenheits-Logik:**
   - Bei der automatischen Eintragung von Raidhelper-Events in die Payoutliste wird jetzt geprüft, ob ein Teilnehmer zum Eventzeitpunkt als abwesend (Urlaub) markiert ist.
-  - Ist ein Nutzer während des Events abwesend, wird in der Payoutliste automatisch ein „x“ statt einer „1“ eingetragen.
+  - Ist ein Nutzer während des Events abwesend, wird in der Payoutliste automatisch ein "x" statt einer "1" eingetragen.
   - Die Abwesenheitsprüfung erfolgt auf Basis der geplanten Abwesenheiten aus dem Event-System und ist damit immer aktuell und zuverlässig.
 
 ---
