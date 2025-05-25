@@ -115,37 +115,18 @@ async def _update_member(client: gspread_asyncio.AsyncioGspreadClientManager, me
         'values': [[class_role]]
     })
 
-    # Set cell color based on küken role
-    has_kueken = False
+    # Set küken role
+    kueken_role = ""
     if "kueken_role" in spreadsheet_role_settings:
         for user_role_id in user_role_ids:
             if str(user_role_id) in spreadsheet_role_settings["kueken_role"]:
-                has_kueken = True
-                # Yellow background for küken
-                batch_update.append({
-                    'range': f"{Column.NAME.value}{row_number}",
-                    'format': {
-                        'backgroundColor': {
-                            'red': 1.0,
-                            'green': 1.0,
-                            'blue': 0.0
-                        }
-                    }
-                })
+                kueken_role = spreadsheet_role_settings["kueken_role"][str(user_role_id)]
                 break
     
-    if not has_kueken:
-        # White background for non-küken
-        batch_update.append({
-            'range': f"{Column.NAME.value}{row_number}",
-            'format': {
-                'backgroundColor': {
-                    'red': 1.0,
-                    'green': 1.0,
-                    'blue': 1.0
-                }
-            }
-        })
+    batch_update.append({
+        'range': f"{Column.KUEKEN.value}{row_number}",
+        'values': [[kueken_role]]
+    })
 
     # Execute batch update
     await sheet.batch_update(batch_update, value_input_option=gspread.utils.ValueInputOption.raw)
