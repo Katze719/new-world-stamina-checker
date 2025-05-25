@@ -123,10 +123,11 @@ async def _update_member(client: gspread_asyncio.AsyncioGspreadClientManager, me
                 kueken_role = spreadsheet_role_settings["kueken_role"][str(user_role_id)]
                 break
     
-    batch_update.append({
-        'range': f"{Column.KUEKEN.value}{row_number}",
-        'values': [[kueken_role]]
-    })
+    if kueken_role:
+        batch_update.append({
+            'range': f"{Column.KUEKEN.value}{row_number}",
+            'values': [[kueken_role]]
+        })
 
     # Execute batch update
     await sheet.batch_update(batch_update, value_input_option=gspread.utils.ValueInputOption.raw)
