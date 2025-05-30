@@ -6077,22 +6077,20 @@ async def send_dm(interaction: discord.Interaction, user: discord.Member, messag
         return
     
     # Sende die Nachricht an den Kanal
-    sender = interaction.user
     embed = discord.Embed(
         title="Neue Nachricht",
         description=message,
         color=discord.Color.blue(),
         timestamp=datetime.datetime.now()
     )
-    embed.set_author(name=f"Von {sender.display_name}", icon_url=sender.display_avatar.url)
-    embed.set_footer(text=f"Gesendet von {sender.display_name} über den /send_dm Befehl")
+    embed.set_footer(text="Nachricht vom Serverteam")
     
     try:
         await channel.send(embed=embed)
         
         # Erfolgsbestätigung
         await interaction.response.send_message(
-            f"✅ Nachricht wurde erfolgreich an {user.mention} in Kanal {channel.mention} gesendet.",
+            f"✅ Nachricht wurde erfolgreich an {user.mention} in Channel {channel.mention} gesendet.",
             ephemeral=True
         )
     except Exception as e:
