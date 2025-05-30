@@ -6039,5 +6039,67 @@ async def remove_kueken_role(interaction: discord.Interaction, role: discord.Rol
     else:
         await interaction.response.send_message(f"Küken Rolle nicht gefunden!", ephemeral=True)
 
+@tree.command(name="send_dm", description="Sendet eine Nachricht an den verknüpften Kanal eines Benutzers")
+@app_commands.describe(
+    user="Der Benutzer, an den die Nachricht gesendet werden soll",
+    message="Die Nachricht, die gesendet werden soll"
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def send_dm(interaction: discord.Interaction, user: discord.Member, message: str):
+    """Sendet eine Nachricht an den verknüpften Kanal eines Benutzers."""
+    
+    # Lade bestehende Verknüpfungen
+    links = await user_channel_links_manager.load() or {}
+    
+    # Finde den Kanal, der mit dem Benutzer verknüpft ist
+    user_id = str(user.id)
+    channel_id = None
+    
+    for chan_id, usr_id in links.items():
+        if usr_id == user_id:
+            channel_id = chan_id
+            break
+    
+    if not channel_id:
+        await interaction.response.send_message(
+            f"❌ Der Benutzer {user.mention} hat keinen verknüpften Channel.",
+            ephemeral=True
+        )
+        return
+    
+    # Finde den Kanal
+    channel = interaction.guild.get_channel(int(channel_id))
+    if not channel:
+        await interaction.response.send_message(
+            f"❌ Der verknüpfte Channel (ID: {channel_id}) konnte nicht gefunden werden.",
+            ephemeral=True
+        )
+        return
+    
+    # Sende die Nachricht an den Kanal
+    sender = interaction.user
+    embed = discord.Embed(
+        title="Neue Nachricht",
+        description=message,
+        color=discord.Color.blue(),
+        timestamp=datetime.datetime.now()
+    )
+    embed.set_author(name=f"Von {sender.display_name}", icon_url=sender.display_avatar.url)
+    embed.set_footer(text=f"Gesendet von {sender.display_name} über den /send_dm Befehl")
+    
+    try:
+        await channel.send(embed=embed)
+        
+        # Erfolgsbestätigung
+        await interaction.response.send_message(
+            f"✅ Nachricht wurde erfolgreich an {user.mention} in Kanal {channel.mention} gesendet.",
+            ephemeral=True
+        )
+    except Exception as e:
+        await interaction.response.send_message(
+            f"❌ Fehler beim Senden der Nachricht: {str(e)}",
+            ephemeral=True
+        )
+
 bot.run(DISCORD_TOKEN)
 
