@@ -4692,8 +4692,7 @@ class HelpView(discord.ui.View):
         # Add all available categories to embed
         for cat_key, cat_data in self.categories.items():
             # Count commands user can access
-            cmd_count = len([cmd for cmd in cat_data["commands"] 
-                          if not cmd["admin_only"] or self.is_admin])
+            cmd_count = len([cmd for cmd in cat_data["commands"] if not cmd.get("admin_only", False) or self.is_admin])
             
             if cmd_count > 0:
                 # Add field for this category
@@ -4726,7 +4725,7 @@ class HelpView(discord.ui.View):
         
         # Filter commands based on admin status
         commands = [cmd for cmd in category["commands"] 
-                   if not cmd["admin_only"] or self.is_admin]
+                   if not cmd.get("admin_only", False) or self.is_admin]
         
         # Pagination setup
         commands_per_page = 5  # 5 commands per page
@@ -4748,7 +4747,7 @@ class HelpView(discord.ui.View):
             embed.add_field(
                 name=cmd["name"],
                 value=f"**Beschreibung:** {cmd['description']}\n**Beispiel:** `{cmd['example']}`" + 
-                      (f"\n**Admin:** Nur für Administratoren" if cmd["admin_only"] else ""),
+                      (f"\n**Admin:** Nur für Administratoren" if cmd.get("admin_only", False) else ""),
                 inline=False
             )
         
