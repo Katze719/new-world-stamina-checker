@@ -6077,10 +6077,21 @@ async def send_dm(interaction: discord.Interaction, user: discord.Member, messag
         )
         return
     
+    # Prüfe, ob eine gespeicherte Nachricht ausgewählt wurde (abgeschnitten auf 100 Zeichen)
+    stored_messages = await stored_dm_messages_manager.load() or {"messages": []}
+    full_message = message
+    
+    # Wenn die Nachricht genau 100 Zeichen hat, prüfe, ob es eine längere Version gibt
+    if len(message) == 100:
+        for stored_msg in stored_messages["messages"]:
+            if stored_msg.startswith(message):
+                full_message = stored_msg
+                break
+    
     # Sende die Nachricht an den Kanal
     embed = discord.Embed(
         title="Neue Nachricht",
-        description=message,
+        description=full_message,
         color=discord.Color.blue(),
         timestamp=datetime.datetime.now()
     )
@@ -6090,12 +6101,11 @@ async def send_dm(interaction: discord.Interaction, user: discord.Member, messag
         await channel.send(embed=embed)
         
         # Speichere die gesendete Nachricht für zukünftige Vorschläge
-        stored_messages = await stored_dm_messages_manager.load() or {"messages": []}
         
         # Vermeide Duplikate
-        if message not in stored_messages["messages"]:
+        if full_message not in stored_messages["messages"]:
             # Füge neue Nachricht am Anfang der Liste hinzu (neueste zuerst)
-            stored_messages["messages"].insert(0, message)
+            stored_messages["messages"].insert(0, full_message)
             
             # Begrenze die Liste auf maximal 25 Nachrichten (Discord Autocomplete Limit)
             if len(stored_messages["messages"]) > 25:
@@ -6127,7 +6137,7 @@ async def message_autocomplete(interaction: discord.Interaction, current: str):
     
     # Discord akzeptiert maximal 25 Vorschläge
     return [
-        app_commands.Choice(name=msg[:100], value=msg)
+        app_commands.Choice(name=msg[:100], value=msg[:100])
         for msg in filtered_messages
     ][:25]
 
