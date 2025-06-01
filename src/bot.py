@@ -75,6 +75,7 @@ SPREADSHEET_ROLE_SETTINGS_PATH = "./spreadsheet_role_settings.json"
 WRITTEN_RAIDHELPERS_FILE = "./written_raidhelpers.json"
 EVENTS_FILE_PATH = "./scheduled_events.json"
 USER_CHANNEL_LINKS_FILE = "./user_channel_links.json"
+STORED_DM_MESSAGES_FILE = "./stored_dm_messages.json"
 
 vod_channel_manager = jsonFileManager.JsonFileManager(VOD_CHANNELS_FILE_PATH, ensure_hidden_attribute)
 settings_manager = jsonFileManager.JsonFileManager(ROLE_NAME_UPDATE_SETTINGS_PATH)
@@ -83,6 +84,7 @@ spreadsheet_role_settings_manager = jsonFileManager.JsonFileManager(SPREADSHEET_
 written_raidhelpers_manager = jsonFileManager.JsonFileManager(WRITTEN_RAIDHELPERS_FILE)
 events_manager = jsonFileManager.JsonFileManager(EVENTS_FILE_PATH)
 user_channel_links_manager = jsonFileManager.JsonFileManager(USER_CHANNEL_LINKS_FILE)
+stored_dm_messages_manager = jsonFileManager.JsonFileManager(STORED_DM_MESSAGES_FILE)
 
 # Initialize SQLite database for level system
 DB_PATH = "./level_system.db"
@@ -6087,6 +6089,20 @@ async def send_dm(interaction: discord.Interaction, user: discord.Member, messag
     try:
         await channel.send(embed=embed)
         
+        # Speichere die gesendete Nachricht für zukünftige Vorschläge
+        stored_messages = await stored_dm_messages_manager.load() or {"messages": []}
+        
+        # Vermeide Duplikate
+        if message not in stored_messages["messages"]:
+            # Füge neue Nachricht am Anfang der Liste hinzu (neueste zuerst)
+            stored_messages["messages"].insert(0, message)
+            
+            # Begrenze die Liste auf maximal 25 Nachrichten (Discord Autocomplete Limit)
+            if len(stored_messages["messages"]) > 25:
+                stored_messages["messages"] = stored_messages["messages"][:25]
+                
+            await stored_dm_messages_manager.save(stored_messages)
+        
         # Erfolgsbestätigung
         await interaction.response.send_message(
             f"✅ Nachricht wurde erfolgreich an {user.mention} in Channel {channel.mention} gesendet.",
@@ -6097,6 +6113,23 @@ async def send_dm(interaction: discord.Interaction, user: discord.Member, messag
             f"❌ Fehler beim Senden der Nachricht: {str(e)}",
             ephemeral=True
         )
+
+@send_dm.autocomplete("message")
+async def message_autocomplete(interaction: discord.Interaction, current: str):
+    """Vorschläge für zuvor gesendete Nachrichten anzeigen"""
+    stored_messages = await stored_dm_messages_manager.load() or {"messages": []}
+    
+    # Alle Nachrichten, die den aktuellen Text enthalten (ohne Beachtung von Groß-/Kleinschreibung)
+    filtered_messages = [
+        msg for msg in stored_messages["messages"]
+        if not current or current.lower() in msg.lower()
+    ]
+    
+    # Discord akzeptiert maximal 25 Vorschläge
+    return [
+        app_commands.Choice(name=msg[:100], value=msg)
+        for msg in filtered_messages
+    ][:25]
 
 bot.run(DISCORD_TOKEN)
 
