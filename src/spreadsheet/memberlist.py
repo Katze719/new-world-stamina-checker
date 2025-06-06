@@ -15,6 +15,7 @@ class Column(Enum):
     COMPANY = 'B'
     CLASS = 'C'
     KUEKEN = 'F'
+    VOD_REVIEW_DATE = 'H'
 
 # Offset for the first 9 entries
 OFFSET = 9
@@ -172,3 +173,60 @@ async def sort_member(client: gspread_asyncio.AsyncioGspreadClientManager, sprea
         log.info("Sorting member list")
         await _sort_member(client, spread_settings)
         log.info("Member list sorted")
+
+async def update_vod_review_date(client: gspread_asyncio.AsyncioGspreadClientManager, member: discord.Member, parse_display_name: callable, spread_settings: jsonFileManager.JsonFileManager):
+    """
+    Update the VOD review date for a member in column H in the spreadsheet.
+    """
+    async with spreadsheet_member_update:
+        log.info(f"Updating VOD review date for {member.display_name} ({member.id})")
+        
+        # Check if document ID is configured
+        spreadsheet_role_settings = await spread_settings.load()
+        if "document_id" not in spreadsheet_role_settings:
+            log.warning("No document ID configured for VOD review update")
+            return
+
+        # Parse the member name
+        def full_parse(member):
+            # Parse the display name
+            member_name = parse_display_name(member)
+
+            # Clean the name
+            member_name = member_name.split(" | ")[0]
+            member_name = member_name.split(" I ")[0]
+            member_name = member_name.replace("🏮 ", "")
+            member_name = member_name.replace("🏮", "")
+            return member_name
+        
+        member_name = full_parse(member)
+        
+        if member_name in AUSNAHMEN:
+            log.warning(f"Member {member_name} is in exceptions list, skipping VOD review date update")
+            return
+
+        # Open the worksheet
+        auth = await client.authorize()
+        worksheet = await auth.open(spreadsheet_role_settings["document_id"])
+        sheet = await worksheet.worksheet("Memberliste")
+
+        # Get column A to find the member
+        A_col = await sheet.get_values("A1:A114", major_dimension="COLUMNS")
+        A_col = A_col[0]
+        A_col = A_col[OFFSET:]  # Skip header rows
+
+        # Find the member's row
+        row_number = None
+        if member_name in A_col:
+            row_number = A_col.index(member_name) + 1 + OFFSET
+        else:
+            log.warning(f"Member {member_name} not found in spreadsheet, cannot update VOD review date")
+            return
+            
+        # Get current date in German format (DD.MM.YYYY)
+        import datetime
+        current_date_str = datetime.datetime.now().strftime("%d.%m.%Y")
+        
+        # Update VOD review date
+        await sheet.update_cell(row_number, ord(Column.VOD_REVIEW_DATE.value) - ord('A') + 1, current_date_str)
+        log.info(f"VOD review date updated for {member_name} to {current_date_str}")

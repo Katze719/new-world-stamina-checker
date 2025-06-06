@@ -463,8 +463,12 @@ async def download_video(youtube_url, on_patch_network=None):
             break  # Erfolg
         except yt_dlp.utils.DownloadError as e:
             error_msg = str(e)
+            # Prüfe ob das Video privat ist
+            if "Private video" in error_msg:
+                log.error(f"Private video cannot be downloaded: {error_msg}")
+                raise ValueError("PRIVATE_VIDEO")
             # Prüfe auf den spezifischen Fehlertext bzgl. YouTube-Cookies/Sign-in
-            if (
+            elif (
                 "Sign in to confirm you're not a bot" in error_msg or
                 "Use --cookies-from-browser or --cookies for the authentication" in error_msg
             ):
@@ -633,8 +637,18 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
                     await edit_msg(interaction, msg.id, embed)
                 except Exception as e:
                     log.error(f"Fehler beim Senden der Patch-Nachricht: {e}")
-            video_path = await download_video(youtube_url, on_patch_network=on_patch_network)
-            time_end_download = time.time()
+            try:
+                video_path = await download_video(youtube_url, on_patch_network=on_patch_network)
+                time_end_download = time.time()
+            except ValueError as e:
+                if str(e) == "PRIVATE_VIDEO":
+                    embed.title = "❌ Privates Video"
+                    embed.description = "Das von dir bereitgestellte Video ist privat und kann nicht analysiert werden. Bitte stelle sicher, dass das Video öffentlich oder als 'nicht gelistet' markiert ist."
+                    embed.color = discord.Color.red()
+                    await edit_msg(interaction, msg.id, embed)
+                    return
+                else:
+                    raise
 
             # Video-Informationen anzeigen
             cap = cv2.VideoCapture(video_path)
@@ -975,6 +989,8 @@ Anzahl < 10 → Absolut top, nichts zu bemängeln. Kurz loben und feiern! 🏆�
 Anzahl < 20 → Ausbaufähig, aber solide. Leicht humorvolles Anstupsen zur Verbesserung. ⚡💪
 Anzahl < 30 → Übungsbedarf. Deutlichere Kritik mit Witz, aber noch motivierend. 🛠️😅
 Anzahl ≥ 40 → Bench. Strengere, aber immer noch humorvolle Kritik. Man sollte merken, dass es ernst wird. 🚑💀
+
+Diese Angaben sind auf 30 Minuten VOD's bezogen. Und nicht auf die Dauer des Videos. Also musst du die Anzahl der OOS-Ereignisse auf die Dauer des Videos hochrechnen / runterrechnen.
 
 Die Person war {stamina_events} Mal out of stamina im letzten Krieg. Gib nur einen einzigen kurzen Satz aus, spielerisch, mit Emojis, aber passend zur Zahl!
 """
