@@ -765,7 +765,7 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
             timestamps, stamina_data, hue_data = await video_analyzer.analyze_video(stable_rectangle, send_progress_update)
             time_end_analyze = time.time()
 
-            message = await get_feedback_message(len(timestamps), video_analyzer.duration)
+            message = await get_feedback_message(len(timestamps), duration)
 
             embed.title = f"✅ Analyse abgeschlossen! für {youtube_url}"
 
