@@ -765,7 +765,7 @@ async def stamina_check(interaction: discord.Interaction, youtube_url: str, debu
             timestamps, stamina_data, hue_data = await video_analyzer.analyze_video(stable_rectangle, send_progress_update)
             time_end_analyze = time.time()
 
-            message = await get_feedback_message(len(timestamps))
+            message = await get_feedback_message(len(timestamps), video_analyzer.duration)
 
             embed.title = f"✅ Analyse abgeschlossen! für {youtube_url}"
 
@@ -980,8 +980,11 @@ async def get_queue_length(interaction: discord.Interaction):
     )
     await interaction.response.send_message(embed=embed)
 
-async def get_feedback_message(stamina_events):
+async def get_feedback_message(stamina_events, video_duration_seconds):
     client = genai.Client(api_key=GOOGLE_GEMINI_TOKEN)
+    # Convert seconds to minutes for better readability
+    video_duration_minutes = video_duration_seconds / 60
+    
     c = f"""
 Du bist ein erfahrener Coach für das Spiel 'New World: Aeternum' und bewertest das Stamina-Management eines Spielers auf humorvolle und motivierende Weise. Weniger Out-of-Stamina-Momente sind besser. Die Bewertung wird strenger, je höher die Anzahl der Ereignisse ist, aber alles unter 10 ist top und verdient nur Lob. Halte dich an folgende Kategorien und formuliere deine Antwort spielerisch mit Memes, Insider-Witzen und passenden Emojis.
 
@@ -990,9 +993,9 @@ Anzahl < 20 → Ausbaufähig, aber solide. Leicht humorvolles Anstupsen zur Verb
 Anzahl < 30 → Übungsbedarf. Deutlichere Kritik mit Witz, aber noch motivierend. 🛠️😅
 Anzahl ≥ 40 → Bench. Strengere, aber immer noch humorvolle Kritik. Man sollte merken, dass es ernst wird. 🚑💀
 
-Diese Angaben sind auf 30 Minuten VOD's bezogen. Und nicht auf die Dauer des Videos. Also musst du die Anzahl der OOS-Ereignisse auf die Dauer des Videos hochrechnen / runterrechnen.
+Diese Angaben sind auf 30 Minuten VOD's bezogen. Das aktuelle Video ist {video_duration_minutes:.1f} Minuten lang. Du musst die Bewertung entsprechend anpassen, indem du die Anzahl der OOS-Ereignisse im Verhältnis zur tatsächlichen Videolänge betrachtest.
 
-Die Person war {stamina_events} Mal out of stamina im letzten Krieg. Gib nur einen einzigen kurzen Satz aus, spielerisch, mit Emojis, aber passend zur Zahl!
+Die Person war {stamina_events} Mal out of stamina in diesem {video_duration_minutes:.1f} Minuten langen Video. Gib nur einen einzigen kurzen Satz aus, spielerisch, mit Emojis, aber passend zur Zahl und Videolänge!
 """
     return (await client.aio.models.generate_content(model="gemini-2.0-flash", contents=c)).text
 
@@ -1142,7 +1145,7 @@ async def on_message(message: discord.Message):
 
                     timestamps = await video_analyzer.analyze_video(stable_rectangle, send_progress_update)
 
-                    mot_message = await get_feedback_message(len(timestamps))
+                    mot_message = await get_feedback_message(len(timestamps), video_analyzer.duration)
 
                     embed = discord.Embed()
                     embed.title = f"✅ Analyse abgeschlossen! für {youtube_url}"

@@ -205,6 +205,7 @@ class VideoAnalyzer:
         self.frame_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.frame_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.fps = int(self.cap.get(cv2.CAP_PROP_FPS))
+        self.duration = self.frame_count / self.fps if self.fps > 0 else 0  # Video duration in seconds
         
         # New World spezifische ROI für die Stamina-Leiste
         # Typischerweise ist die Stamina-Leiste im unteren mittleren Bereich des Bildschirms
