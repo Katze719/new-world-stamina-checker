@@ -523,35 +523,6 @@ def format_time(seconds):
     seconds = int(seconds % 60)
     return f"{minutes:02}:{seconds:02}"
 
-@tree.command(name="add_this_channel", description="Füge diesen Channel zur VOD-Prüfliste hinzu")
-async def add_this_channel(interaction: discord.Interaction, hidden: bool = False):
-    channels = await vod_channel_manager.load()
-    channel_id = str(interaction.channel.id)
-
-    if channel_id in channels:
-        await interaction.response.send_message("Dieser Channel ist bereits in der VOD-Prüfliste.", ephemeral=True)
-        return
-
-    channels[channel_id] = {"hidden": hidden}
-    await vod_channel_manager.save(channels)
-    await interaction.response.send_message(
-        f"Channel wurde erfolgreich zur VOD-Prüfliste hinzugefügt! (Hidden: {hidden})",
-        ephemeral=True
-    )
-
-@tree.command(name="remove_this_channel", description="Entferne diesen Channel von der VOD-Prüfliste")
-async def remove_this_channel(interaction: discord.Interaction):
-    channels = await vod_channel_manager.load()
-    channel_id = str(interaction.channel.id)
-
-    if channel_id not in channels:
-        await interaction.response.send_message("Dieser Channel ist nicht in der VOD-Prüfliste.", ephemeral=True)
-        return
-
-    del channels[channel_id]
-    await vod_channel_manager.save(channels)
-    await interaction.response.send_message("Channel wurde erfolgreich von der VOD-Prüfliste entfernt!", ephemeral=True)
-
 @tree.command(name="stamina_check", description="Analysiert ein YouTube-Video auf Stamina-Null-Zustände.")
 async def stamina_check(interaction: discord.Interaction, youtube_url: str, debug_mode: bool = False):
 
@@ -5023,6 +4994,12 @@ async def link_user_channel(interaction: discord.Interaction, user: discord.Memb
     # Speichere die neue Verknüpfung
     links[channel_id] = user_id
     await user_channel_links_manager.save(links)
+
+    channels = await vod_channel_manager.load()
+
+    channels[channel_id] = {"hidden": False}
+    await vod_channel_manager.save(channels)
+
     
     # Erstelle Embed für die Bestätigung
     embed = discord.Embed(
@@ -5057,6 +5034,10 @@ async def unlink_user_channel(interaction: discord.Interaction):
     # Finde den Benutzer, falls möglich
     user = interaction.guild.get_member(int(user_id))
     user_mention = user.mention if user else f"Benutzer (ID: {user_id})"
+
+    channels = await vod_channel_manager.load()
+    del channels[channel_id]
+    await vod_channel_manager.save(channels)
     
     # Erstelle Embed für die Bestätigung
     embed = discord.Embed(
