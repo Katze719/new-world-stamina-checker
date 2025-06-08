@@ -6160,5 +6160,204 @@ async def message_autocomplete(interaction: discord.Interaction, current: str):
         for msg in filtered_messages
     ][:25]
 
+@tree.command(name="anwesend", description="Beende deine Abwesenheit vorzeitig")
+@app_commands.describe(event_id="Die ID der Abwesenheit die beendet werden soll")
+@require_linked_channel()
+async def anwesend(interaction: discord.Interaction, event_id: str = None):
+    """Beendet eine Abwesenheit vorzeitig."""
+    # Lade alle Events
+    events_data = await events_manager.load() or {"events": []}
+    events = events_data["events"]
+    
+    # Filtere die Events für diesen Nutzer und diesen Channel
+    user_id = str(interaction.user.id)
+    channel_id = str(interaction.channel.id)
+    
+    # Finde alle End-Events für diesen Nutzer und Channel
+    user_end_events = []
+    for event in events:
+        if event.get("type") == EventType.REMOVE_ABSENCE_INDICATOR:
+            context = event.get("context", {})
+            if (context.get("user_id") == user_id and 
+                context.get("channel_id") == channel_id):
+                user_end_events.append(event)
+    
+    if not user_end_events:
+        await interaction.response.send_message("Du hast aktuell keine laufende Abwesenheit.", ephemeral=True)
+        return
+    
+    if event_id is None:
+        # Wenn kein Event-ID angegeben wurde, zeige eine Antwort mit allen verfügbaren Events
+        await interaction.response.send_message(
+            "Bitte nutze den Befehl mit Auswahl einer der angezeigten Abwesenheiten.",
+            ephemeral=True
+        )
+        return
+    
+    # Finde das ausgewählte Event
+    selected_event = None
+    for event in events:
+        if event.get("id") == event_id:
+            selected_event = event
+            break
+    
+    if not selected_event:
+        await interaction.response.send_message(
+            "Die ausgewählte Abwesenheit wurde nicht gefunden.",
+            ephemeral=True
+        )
+        return
+    
+    # Prüfe, ob das Event tatsächlich dem Nutzer gehört
+    context = selected_event.get("context", {})
+    if context.get("user_id") != user_id or context.get("channel_id") != channel_id:
+        await interaction.response.send_message(
+            "Die ausgewählte Abwesenheit gehört nicht zu dir oder diesem Channel.",
+            ephemeral=True
+        )
+        return
+    
+    # Ändere das Ausführungsdatum auf jetzt
+    now = datetime.datetime.now(datetime.timezone.utc)
+    
+    # Finde das zugehörige Start-Event
+    start_event = None
+    for event in events:
+        if (event.get("type") == EventType.START_ABSENCE_INDICATOR and
+            event.get("context", {}).get("user_id") == user_id and
+            event.get("context", {}).get("channel_id") == channel_id):
+            start_date_str = event.get("execution_date")
+            if start_date_str:
+                try:
+                    start_date = datetime.datetime.fromisoformat(start_date_str)
+                    # Wenn das Start-Event in der Zukunft liegt, beende es jetzt
+                    if start_date > now:
+                        await remove_event(event.get("id"))
+                except ValueError:
+                    pass
+    
+    # Wenn das End-Event in der Vergangenheit liegt, ignorieren wir es
+    end_date_str = selected_event.get("execution_date")
+    try:
+        end_date = datetime.datetime.fromisoformat(end_date_str)
+        if end_date <= now:
+            await interaction.response.send_message(
+                "Diese Abwesenheit ist bereits beendet.",
+                ephemeral=True
+            )
+            return
+    except ValueError:
+        pass
+    
+    # Setze das End-Datum auf jetzt
+    selected_event["execution_date"] = now.isoformat()
+    
+    # Speichere die aktualisierte Events-Liste
+    await events_manager.save(events_data)
+    
+    # Entferne die Abwesenheitsrolle, wenn konfiguriert
+    username = context.get("username", interaction.user.display_name)
+    roles_settings = await spreadsheet_role_settings_manager.load()
+    
+    if "abwesenheits_role" in roles_settings:
+        try:
+            absence_role_id = roles_settings["abwesenheits_role"]
+            absence_role = interaction.guild.get_role(absence_role_id)
+            if absence_role and absence_role in interaction.user.roles:
+                await interaction.user.remove_roles(absence_role, reason="Abwesenheit vorzeitig beendet")
+                log.info(f"Removed absence role from {username} due to early return")
+                
+            # Füge die Austauschrolle wieder hinzu, falls gesetzt
+            if "abwesenheit_exchange_role" in roles_settings:
+                exchange_role_id = roles_settings["abwesenheit_exchange_role"]
+                exchange_role = interaction.guild.get_role(exchange_role_id)
+                if exchange_role and exchange_role not in interaction.user.roles:
+                    await interaction.user.add_roles(exchange_role, reason="Abwesenheit vorzeitig beendet - Austauschrolle wiederhergestellt")
+                    log.info(f"Added exchange role back to {username} due to early absence end")
+        except discord.HTTPException as e:
+            log.error(f"Failed to update roles for early absence end of {username}: {str(e)}")
+    
+    await interaction.response.send_message(
+        "Deine Abwesenheit wurde vorzeitig beendet. Es kann bis zu 30 Minuten dauern, bis alle Änderungen vollständig umgesetzt sind.",
+        ephemeral=True
+    )
+    
+    # Führe die Ereignisverarbeitung manuell aus, um schnellere Reaktion zu haben
+    await process_scheduled_events()
+
+@anwesend.autocomplete("event_id")
+async def absence_event_autocomplete(interaction: discord.Interaction, current: str):
+    """Autocomplete für die Auswahl einer Abwesenheit."""
+    # Lade Events
+    events_data = await events_manager.load() or {"events": []}
+    events = events_data["events"]
+    
+    # Filtere für diesen Nutzer relevante Abwesenheiten
+    user_id = str(interaction.user.id)
+    channel_id = str(interaction.channel.id)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    
+    # Finde alle End-Events für diesen Nutzer und Channel
+    user_end_events = []
+    for event in events:
+        if event.get("type") == EventType.REMOVE_ABSENCE_INDICATOR:
+            context = event.get("context", {})
+            if (context.get("user_id") == user_id and 
+                context.get("channel_id") == channel_id):
+                try:
+                    execution_date = datetime.datetime.fromisoformat(event.get("execution_date"))
+                    # Nur zukünftige Events anzeigen
+                    if execution_date > now:
+                        user_end_events.append(event)
+                except (ValueError, TypeError):
+                    continue
+    
+    # Finde für jedes End-Event das passende Start-Event
+    start_lookup = {}
+    for event in events:
+        if event.get("type") == EventType.START_ABSENCE_INDICATOR:
+            context = event.get("context", {})
+            event_user_id = context.get("user_id")
+            event_channel_id = context.get("channel_id")
+            if event_user_id and event_channel_id:
+                key = (event_user_id, event_channel_id)
+                if key not in start_lookup:
+                    start_lookup[key] = []
+                start_lookup[key].append(event)
+    
+    # Erstelle Auswahlmöglichkeiten
+    choices = []
+    for end_event in user_end_events:
+        end_id = end_event.get("id")
+        context = end_event.get("context", {})
+        end_date = datetime.datetime.fromisoformat(end_event.get("execution_date"))
+        
+        # Finde Start-Datum
+        start_date_str = "unbekannt"
+        user_channel_key = (context.get("user_id"), context.get("channel_id"))
+        
+        if user_channel_key in start_lookup and start_lookup[user_channel_key]:
+            matching_start_events = sorted(
+                start_lookup[user_channel_key],
+                key=lambda e: datetime.datetime.fromisoformat(e.get("execution_date"))
+            )
+            
+            for start_event in matching_start_events:
+                start_date = datetime.datetime.fromisoformat(start_event.get("execution_date"))
+                if start_date <= end_date:
+                    start_date_str = start_date.strftime("%d.%m.%Y")
+                    break
+        
+        # Formatiere für die Anzeige
+        end_date_str = end_date.strftime("%d.%m.%Y")
+        choice_name = f"Abwesenheit {start_date_str} bis {end_date_str}"
+        
+        # Nur hinzufügen, wenn es dem Suchbegriff entspricht
+        if not current or current.lower() in choice_name.lower():
+            choices.append(app_commands.Choice(name=choice_name, value=end_id))
+    
+    # Maximal 25 Auswahlmöglichkeiten zurückgeben
+    return choices[:25]
+
 bot.run(DISCORD_TOKEN)
 
