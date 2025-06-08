@@ -6285,7 +6285,7 @@ async def anwesend(interaction: discord.Interaction, urlaub: str):
     # Führe die Ereignisverarbeitung manuell aus, um schnellere Reaktion zu haben
     await process_scheduled_events()
 
-@anwesend.autocomplete("event_id")
+@anwesend.autocomplete("urlaub")
 async def absence_event_autocomplete(interaction: discord.Interaction, current: str):
     """Autocomplete für die Auswahl einer Abwesenheit."""
     # Lade Events
