@@ -6161,9 +6161,9 @@ async def message_autocomplete(interaction: discord.Interaction, current: str):
     ][:25]
 
 @tree.command(name="anwesend", description="Beende deine Abwesenheit vorzeitig")
-@app_commands.describe(event_id="Die ID der Abwesenheit die beendet werden soll")
+@app_commands.describe(urlaub="Wähle welcher Urlaub beendet werden soll")
 @require_linked_channel()
-async def anwesend(interaction: discord.Interaction, event_id: str = None):
+async def anwesend(interaction: discord.Interaction, urlaub: str):
     """Beendet eine Abwesenheit vorzeitig."""
     # Lade alle Events
     events_data = await events_manager.load() or {"events": []}
@@ -6186,7 +6186,7 @@ async def anwesend(interaction: discord.Interaction, event_id: str = None):
         await interaction.response.send_message("Du hast aktuell keine laufende Abwesenheit.", ephemeral=True)
         return
     
-    if event_id is None:
+    if urlaub is None:
         # Wenn kein Event-ID angegeben wurde, zeige eine Antwort mit allen verfügbaren Events
         await interaction.response.send_message(
             "Bitte nutze den Befehl mit Auswahl einer der angezeigten Abwesenheiten.",
@@ -6197,7 +6197,7 @@ async def anwesend(interaction: discord.Interaction, event_id: str = None):
     # Finde das ausgewählte Event
     selected_event = None
     for event in events:
-        if event.get("id") == event_id:
+        if event.get("id") == urlaub:
             selected_event = event
             break
     
@@ -6333,7 +6333,7 @@ async def absence_event_autocomplete(interaction: discord.Interaction, current: 
         end_date = datetime.datetime.fromisoformat(end_event.get("execution_date"))
         
         # Finde Start-Datum
-        start_date_str = "unbekannt"
+        start_date_str = "Heute"
         user_channel_key = (context.get("user_id"), context.get("channel_id"))
         
         if user_channel_key in start_lookup and start_lookup[user_channel_key]:
