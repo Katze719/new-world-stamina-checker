@@ -12,6 +12,13 @@ Analyze YouTube videos for stamina management during wars and events:
 - Provides timestamps for critical moments.
 - Offers humorous and motivational feedback based on performance.
 
+### 🎮 **VOD Review System**
+Complete VOD review toolkit for player improvement:
+- Create structured reviews with ratings for different skill categories
+- Track review dates in Google Sheets
+- Score positioning, pot management, calling, group play, stamina management, and mechanics
+- Add notes and observations for personalized feedback
+
 ### 🏆 **Level-System**
 A comprehensive user activity tracking and rewards system:
 - Users earn XP through text messages and voice chat activity
@@ -19,6 +26,7 @@ A comprehensive user activity tracking and rewards system:
 - Level numbers display automatically in user nicknames
 - Track individual progress and compete on server-wide leaderboards
 - Rewards both active chatters and voice participants
+- Daily streak system with XP multipliers for consistent activity
 
 ### 📊 **Activity Analytics**
 Detailed tracking and visualization of server activity:
@@ -33,6 +41,7 @@ Seamlessly integrates with Google Sheets to manage and update:
 - **Payout lists**: Automatically updates participation stats for wars and events.
 - **Member lists**: Keeps track of guild members and their roles.
 - **Stats**: Displays individual player statistics directly from the spreadsheet.
+- **VOD Review Dates**: Updates when players receive VOD reviews.
 
 ### 🛠️ **Role Management**
 - Automatically updates member nicknames based on their roles and icons.
@@ -40,20 +49,26 @@ Seamlessly integrates with Google Sheets to manage and update:
 - Allows administrators to configure role icons and priorities.
 
 ### 📅 **Event Management**
-- Tracks RaidHelper events for wars and races.
-- Automatically updates event participation in Google Sheets.
+- Schedules and processes events like absence periods automatically
+- Tracks RaidHelper events for wars and races
+- Automatically updates event participation in Google Sheets
+- Lists and manages upcoming scheduled events
 
 ### 🖼️ **User Extraction**
 - Extracts usernames from uploaded images in specific channels.
 - Matches extracted names with guild members for easy tracking.
+- Automatically handles event attendance tracking from screenshots.
 
 ### 🔔 **Channel Monitoring**
 - Monitors activity in designated channels.
 - Sends notifications when channels have been inactive for too long.
 
 ### 🏖️ **Absence Tracking**
-- Allows users to submit their absence periods.
-- Updates the absence information in the Google Sheets.
+- Allows users to submit their absence periods
+- Automatically manages absence indicators in channel names
+- Handles role assignments during absence periods
+- Updates the absence information in Google Sheets
+- Early return option for users who come back sooner than planned
 
 ### 🛡️ **Error Logging**
 - Logs errors and sends detailed stack traces to a designated error log channel.
@@ -64,11 +79,14 @@ Seamlessly integrates with Google Sheets to manage and update:
 
 ### Slash Commands
 - `/stamina_check <youtube_url>`: Analyze a YouTube video for stamina management.
-- `/add_this_channel`: Add the current channel to the VOD review list.
-- `/remove_this_channel`: Remove the current channel from the VOD review list.
+- `/get_queue_length`: Check how many videos are in the analysis queue.
+- `/vod_review <member>`: Create a structured VOD review with ratings for different categories.
+- `/abwesenheit`: Submit your absence period.
+- `/anwesend <urlaub>`: End your absence period early.
+- `/urlaub_status`: Show how many users are currently marked as absent (admin only).
 - `/changelog`: View the latest changelog entry.
 - `/stats`: Display your stats from the Google Sheet.
-- `/abwesenheit`: Submit your absence period.
+- `/hilfe [category]`: Shows detailed help information for all commands.
 
 #### Level System Commands
 - `/level [user]`: Display the current level and XP of a user.
@@ -80,6 +98,12 @@ Seamlessly integrates with Google Sheets to manage and update:
 - `/xp_graph [user] [days]`: Generate a visual graph of XP progression.
 - `/monthly_stats [year] [month]`: Display server statistics for a specific month.
 - `/server_activity [days]`: Show a stacked bar chart of server-wide activity.
+
+#### User-Channel Link Commands
+- `/link <user>`: Link a user to the current channel.
+- `/unlink`: Remove the link between a user and the current channel.
+- `/get_user_for_channel`: Show which user is linked to the current channel.
+- `/send_dm <user> <message>`: Send a message to a user's linked channel (admin only).
 
 #### Admin Level Commands
 - `/add_xp <user> <amount>`: Add a specific amount of XP to a user.
@@ -112,6 +136,13 @@ Seamlessly integrates with Google Sheets to manage and update:
 - `/remove_this_from_user_extraction`: Remove the current channel from the user extraction list.
 - `/set_check_channel <role>`: Monitor a channel for inactivity and notify a role.
 - `/remove_check_channel`: Stop monitoring a channel for inactivity.
+- `/list_events`: List all scheduled bot events.
+- `/remove_event <event_id>`: Remove a scheduled event.
+- `/manually_process_events`: Manually trigger event processing.
+- `/set_abwesenheits_role <role> [exchange_role]`: Set the role for absence periods.
+- `/remove_abwesenheits_role`: Remove the absence role configuration.
+- `/process_raidhelper <message_id> [event_type]`: Process a RaidHelper message for attendance tracking.
+- `/cleanup_payoutlist`: Remove members from the payout list who are no longer in the server.
 - `/test`: A test command for debugging purposes.
 
 ---
@@ -159,6 +190,7 @@ Seamlessly integrates with Google Sheets to manage and update:
 ### Level System
 - The level system starts automatically when the bot is first launched
 - XP is automatically awarded for messages (1 XP) and voice activity (3 XP per minute)
+- Activity streaks increase XP rewards with multipliers for consecutive days of activity
 - You can customize how levels appear in usernames using `/set_pattern`, recommended patterns:
   - `{name} ({level}) [{icons}]` (default)
   - `{name} | ({level}) [{icons}]`
@@ -166,9 +198,21 @@ Seamlessly integrates with Google Sheets to manage and update:
 - Administrators can manage the system with `/add_xp`, `/set_level`, and `/reset_levels`
 - Level progress is stored in a SQLite database
 
+### Absence System
+- Users must be linked to a channel using `/link` before using the absence system
+- Use `/abwesenheit` to set up an absence period with start and end dates
+- The system automatically updates channel names and user roles
+- Early returns can be processed with `/anwesend`
+- Configure absence roles with `/set_abwesenheits_role`
+
 ### Channel Monitoring
 - Use `/set_check_channel` to monitor a channel for inactivity.
 - Use `/set_error_log_channel` to log errors.
+
+### VOD Review System
+- Use `/vod_review` to create structured player reviews
+- Reviews include ratings for 6 different skill categories
+- Review dates are automatically updated in the Google Sheet
 
 ---
 
