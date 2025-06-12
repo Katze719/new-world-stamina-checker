@@ -478,8 +478,8 @@ async def cleanup_payoutlist(sheet, discord_member_list_orig_names):
     for i, member_name in enumerate(A_col):
         if member_name and member_name not in discord_members:
             row = i + 1 + COLUMN_START_OFFSET
-            batch_clear.append(f"A{row}:AAA{row}")
-            log.info(f"Removing member from payoutlist: {member_name}")
+            # batch_clear.append(f"A{row}:AAA{row}")
+            log.info(f"(Would remove) Removing member from payoutlist: {member_name}")
     
     # Clear rows for members to remove
     if batch_clear:
