@@ -6340,5 +6340,142 @@ async def absence_event_autocomplete(interaction: discord.Interaction, current: 
     # Maximal 25 Auswahlmöglichkeiten zurückgeben
     return choices[:25]
 
+# =========================================
+#      🔍 Channel message inspection
+# =========================================
+
+@tree.command(
+    name="channel_messages",
+    description="Zeigt die letzten Nachrichten eines Channels in einer beliebigen Gilde"
+)
+@app_commands.describe(
+    guild="Gilde (Server), in der sich der gewünschte Channel befindet",
+    limit="Anzahl der anzuzeigenden Nachrichten (1-100, Standard: 10)"
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def channel_messages(interaction: discord.Interaction, guild: str, limit: int = 10):
+    """Interaktiver Befehl, um Nachrichten aus anderen Servern auszulesen."""
+
+    # Begrenze die Anzahl der Nachrichten auf einen sinnvollen Bereich
+    limit = max(1, min(100, limit))
+
+    # Versuche die gewählte Gilde zu finden
+    try:
+        guild_id = int(guild)
+    except ValueError:
+        await interaction.response.send_message("Ungültige Gilden-ID.", ephemeral=True)
+        return
+
+    target_guild = bot.get_guild(guild_id)
+    if not target_guild:
+        await interaction.response.send_message("Gilde nicht gefunden oder Bot ist kein Mitglied.", ephemeral=True)
+        return
+
+    # Sammle lesbare Text-Channels
+    readable_channels = [
+        c for c in target_guild.text_channels
+        if c.permissions_for(target_guild.me).read_message_history
+    ]
+
+    if not readable_channels:
+        await interaction.response.send_message(
+            f"In **{target_guild.name}** wurden keine lesbaren Text-Channels gefunden.",
+            ephemeral=True
+        )
+        return
+
+    # ----------- UI Components ------------
+    class ChannelSelect(discord.ui.Select):
+        def __init__(self, channels):
+            options = [
+                discord.SelectOption(label=f"#{ch.name}", value=str(ch.id))
+                for ch in channels[:25]  # Discord erlaubt max. 25 Optionen pro Select
+            ]
+            super().__init__(
+                placeholder="Wähle einen Channel …",
+                options=options,
+                min_values=1,
+                max_values=1
+            )
+
+        async def callback(self_select, interaction_select: discord.Interaction):
+            """Wird aufgerufen, wenn der Benutzer einen Channel auswählt."""
+            channel_id = int(self_select.values[0])
+            channel = target_guild.get_channel(channel_id)
+            if not channel:
+                await interaction_select.response.send_message(
+                    "Channel konnte nicht gefunden werden.",
+                    ephemeral=True
+                )
+                return
+
+            # Lese Nachrichten (neueste zuerst, drehen für chronologische Anzeige)
+            fetched_messages = [
+                msg async for msg in channel.history(limit=limit)
+            ]
+            fetched_messages.reverse()
+
+            if not fetched_messages:
+                description = "*(Keine Nachrichten gefunden)*"
+            else:
+                lines = []
+                for msg in fetched_messages:
+                    timestamp = msg.created_at.strftime("%d.%m.%Y %H:%M")
+                    content = msg.content.strip()
+                    if not content and msg.attachments:
+                        content = f"{len(msg.attachments)} Anhang/Anhänge"
+                    # Kürze sehr lange Inhalte
+                    if len(content) > 80:
+                        content = content[:77] + "…"
+                    lines.append(f"`{timestamp}` **{msg.author.display_name}:** {content}")
+                description = "\n".join(lines)
+
+            embed = discord.Embed(
+                title=f"Letzte {limit} Nachrichten in #{channel.name}",
+                description=description,
+                colour=discord.Colour.blurple()
+            )
+
+            await interaction_select.response.edit_message(embed=embed, view=None)
+
+    class ChannelSelectView(discord.ui.View):
+        def __init__(self, channels):
+            super().__init__(timeout=60)
+            self.add_item(ChannelSelect(channels))
+
+        async def on_timeout(self):
+            # Entferne die View, wenn sie abläuft, um UI aufzuräumen
+            try:
+                await message.edit(view=None)
+            except Exception:
+                pass
+
+    view = ChannelSelectView(readable_channels)
+    embed_intro = discord.Embed(
+        title=f"Channels in {target_guild.name}",
+        description="Bitte wähle einen Channel aus dem Dropdown, um die letzten Nachrichten anzuzeigen.",
+        colour=discord.Colour.blurple()
+    )
+
+    # Sende interaktive Nachricht
+    message = await interaction.response.send_message(
+        embed=embed_intro,
+        view=view,
+        ephemeral=True
+    )
+
+
+@channel_messages.autocomplete("guild")
+async def guild_autocomplete(interaction: discord.Interaction, current: str):
+    """Bietet eine Autocomplete-Liste aller Gilden, auf denen der Bot aktiv ist."""
+    choices = []
+    for g in bot.guilds:
+        # Füge nur passende Gilden zur Auswahl hinzu
+        if not current or current.lower() in g.name.lower() or current.isdigit() and current in str(g.id):
+            display_name = f"{g.name} (ID: {g.id})"
+            choices.append(app_commands.Choice(name=display_name, value=str(g.id)))
+
+    return choices[:25]
+
 bot.run(DISCORD_TOKEN)
 
