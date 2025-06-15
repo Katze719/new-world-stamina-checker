@@ -436,7 +436,10 @@ voice_activity_tracker = {}
 
 role_name_update_settings_cache = {}
 
-default_pattern = "{name} ({level}) [{icons}]"
+# Neues Standard-Pattern ohne Level-Anzeige
+default_pattern = "{name} [{icons}]"
+
+# Stelle sicher, dass das Pattern im Cache ist
 if "global_pattern" not in role_name_update_settings_cache:
     role_name_update_settings_cache["global_pattern"] = default_pattern
 
@@ -1454,15 +1457,22 @@ async def update_member_nickname(member: discord.Member):
     else:
         base_name = member.display_name
 
-    expected_nick = pattern.format(icons=icons, name=base_name, level=level_emoji)
+    format_args = {"icons": icons, "name": base_name}
+    if "{level}" in pattern:
+        format_args["level"] = level_emoji
+
+    expected_nick = pattern.format(**format_args)
     if len(expected_nick) > 32:
         # Berechne, wie viele Zeichen für {name} übrig bleiben, wenn {icons} und {level} unverändert bleiben
-        fixed_part = pattern.format(icons=icons, name="", level=level_emoji)  # Platzhalter für den variablen Teil wird hier durch "" ersetzt
+        fixed_args = {"icons": icons, "name": ""}
+        if "{level}" in pattern:
+            fixed_args["level"] = level_emoji
+        fixed_part = pattern.format(**fixed_args)  # Platzhalter für den variablen Teil wird hier durch "" ersetzt
         allowed_name_length = 32 - len(fixed_part)
         if allowed_name_length < 0:
             allowed_name_length = 0  # Sicherheitshalber
         base_name = base_name[:allowed_name_length]
-        expected_nick = pattern.format(icons=icons, name=base_name, level=level_emoji)
+        expected_nick = pattern.format(**format_args)
 
     if member.display_name != expected_nick:
         try:
