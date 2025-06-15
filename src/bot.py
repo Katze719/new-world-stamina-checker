@@ -1475,9 +1475,10 @@ async def update_member_nickname(member: discord.Member):
         expected_nick = pattern.format(**format_args)
 
     if member.display_name != expected_nick:
+        old_name = member.display_name
         try:
-            log.info(f"Nickname von {member.display_name} geändert zu {expected_nick}")
             await member.edit(nick=expected_nick)
+            log.info(f"Nickname geändert: '{old_name}' → '{expected_nick}'")
         except discord.Forbidden:
             log.error(f"Konnte Nickname von {member.display_name} nicht ändern - fehlende Berechtigungen.")
         except discord.NotFound:
@@ -1541,9 +1542,10 @@ async def migrate_nickname(member: discord.Member):
     
     # Aktualisiere den Nicknamen
     if member.display_name != expected_nick:
+        old_name = member.display_name
         try:
-            log.info(f"Migration: Nickname von {member.display_name} geändert zu {expected_nick}")
             await member.edit(nick=expected_nick)
+            log.info(f"Migration: '{old_name}' → '{expected_nick}'")
         except discord.Forbidden:
             log.error(f"Konnte Nickname von {member.display_name} nicht ändern - fehlende Berechtigungen.")
         except discord.NotFound:
@@ -1588,9 +1590,9 @@ async def migrate_all_users(interaction: discord.Interaction):
         
         # Neues Pattern ohne Level sicherstellen
         global role_name_update_settings_cache
-        role_name_update_settings_cache["global_pattern"] = default_pattern
+        role_name_update_settings_cache["global_pattern"] = "{name} [{icons}]"
         await settings_manager.save(role_name_update_settings_cache)
-        pattern = default_pattern                      # für regex-Erkennung unten
+        pattern = "{name} [{icons}]"                      # für regex-Erkennung unten
         regex = pattern_to_regex(pattern)
         
         # Erkennung des alten Formats "Name (level) [icons]"
