@@ -1549,6 +1549,29 @@ async def migrate_nickname(member: discord.Member):
         except discord.NotFound:
             log.error(f"Member {member} wurde nicht gefunden (vermutlich gekickt).")
 
+# ---------------------------------------------------------
+#  Helper: "Name (level) [icons]"  →  "Name [icons]"
+# ---------------------------------------------------------
+
+async def migrate_nickname_remove_level(member: discord.Member):
+    """Entfernt die (level)-Klammer aus dem Nickname und setzt ihn nach dem aktuellen Pattern neu."""
+
+    # Falls keine Level-Klammer vorhanden ist, abbrechen
+    if not re.search(r"\(\d+\)", member.display_name):
+        return
+
+    # Rohen Namen ohne Level ermitteln
+    base_name = re.sub(r"\s*\(\d+\)", "", member.display_name).strip()
+
+    try:
+        # Temporär ohne Level setzen, um update_member_nickname saubere Basis zu geben
+        await member.edit(nick=base_name)
+    except (discord.Forbidden, discord.NotFound):
+        return
+
+    # Anwenden des aktuellen Patterns (fügt Icons etc. hinzu)
+    await update_member_nickname(member)
+
 @tree.command(name="migrate_all_users", description="Migriert alle Nutzernamen vom alten Format mit Level zum neuen Format ohne Level")
 @app_commands.checks.has_permissions(administrator=True)
 async def migrate_all_users(interaction: discord.Interaction):
@@ -1571,20 +1594,15 @@ async def migrate_all_users(interaction: discord.Interaction):
         old_format_regex = re.compile(r'^(.*?)\s*\(.*?\)\s*\[.*\]$')
         
         for member in guild.members:
-            # Prüfe, ob bereits im neuen Format
-            if regex.match(member.display_name):
-                already_migrated += 1
-                await update_member_in_spreadsheet(member)
-                continue
-                
-            # Alte Namen im Format "Name (level) [icons]" migrieren
+            # zuerst das alte Format prüfen
             if old_format_regex.match(member.display_name):
                 await migrate_nickname_remove_level(member)
                 migrated_count += 1
-            else:
-                # Normale Aktualisierung für andere Namen
+            elif regex.match(member.display_name):          # schon im neuen Format
+                already_migrated += 1
+            else:                                           # sonst normal updaten
                 await update_member_nickname(member)
-            
+
             await update_member_in_spreadsheet(member)
     
     await spreadsheet.memberlist.sort_member(spreadsheet_acc, spreadsheet_role_settings_manager)
