@@ -1586,8 +1586,11 @@ async def migrate_all_users(interaction: discord.Interaction):
         migrated_count = 0
         already_migrated = 0
         
-        # Aktuelles Pattern für die Erkennung bereits migrierter Nutzer
-        pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
+        # Neues Pattern ohne Level sicherstellen
+        global role_name_update_settings_cache
+        role_name_update_settings_cache["global_pattern"] = default_pattern
+        await settings_manager.save(role_name_update_settings_cache)
+        pattern = default_pattern                      # für regex-Erkennung unten
         regex = pattern_to_regex(pattern)
         
         # Erkennung des alten Formats "Name (level) [icons]"
