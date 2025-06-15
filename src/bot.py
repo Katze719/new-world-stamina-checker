@@ -1549,14 +1549,14 @@ async def migrate_nickname(member: discord.Member):
         except discord.NotFound:
             log.error(f"Member {member} wurde nicht gefunden (vermutlich gekickt).")
 
-@tree.command(name="migrate_all_users", description="Migriert alle Nutzernamen vom alten Format zum neuen Format mit Level")
+@tree.command(name="migrate_all_users", description="Migriert alle Nutzernamen vom alten Format mit Level zum neuen Format ohne Level")
 @app_commands.checks.has_permissions(administrator=True)
 async def migrate_all_users(interaction: discord.Interaction):
     """
-    Migriert alle Nutzernamen vom alten Format 'Name [icons]' zum neuen Format 'Name (level) [icons]',
-    ohne die Icons zu duplizieren. Nutzt den speziellen Migrationsalgorithmus.
+    Migriert alle Nutzernamen vom alten Format 'Name (level) [icons]' zum neuen Format 'Name [icons]'.
+    Entfernt also die Level-Anzeige und behält Icons bei.
     """
-    await interaction.response.send_message("Migriere alle Nutzernamen vom alten zum neuen Format...", ephemeral=True)
+    await interaction.response.send_message("Migriere alle Nutzernamen vom alten Format MIT Level zum neuen Format OHNE Level...", ephemeral=True)
     guild = interaction.guild
     
     if guild:
@@ -1567,8 +1567,8 @@ async def migrate_all_users(interaction: discord.Interaction):
         pattern = role_name_update_settings_cache.get("global_pattern", default_pattern)
         regex = pattern_to_regex(pattern)
         
-        # Altes Format für die Erkennung zu migrierender Nutzer
-        old_format_regex = re.compile(r'^(.*?)\s*\[.*\]$')
+        # Erkennung des alten Formats "Name (level) [icons]"
+        old_format_regex = re.compile(r'^(.*?)\s*\(.*?\)\s*\[.*\]$')
         
         for member in guild.members:
             # Prüfe, ob bereits im neuen Format
@@ -1577,9 +1577,9 @@ async def migrate_all_users(interaction: discord.Interaction):
                 await update_member_in_spreadsheet(member)
                 continue
                 
-            # Alte Namen im Format "Name [icons]" migrieren
+            # Alte Namen im Format "Name (level) [icons]" migrieren
             if old_format_regex.match(member.display_name):
-                await migrate_nickname(member)
+                await migrate_nickname_remove_level(member)
                 migrated_count += 1
             else:
                 # Normale Aktualisierung für andere Namen
@@ -1590,7 +1590,7 @@ async def migrate_all_users(interaction: discord.Interaction):
     await spreadsheet.memberlist.sort_member(spreadsheet_acc, spreadsheet_role_settings_manager)
     await interaction.edit_original_response(
         content=f"Migration abgeschlossen!\n"
-               f"• {migrated_count} Nutzernamen wurden vom alten Format migriert\n"
+               f"• {migrated_count} Nutzernamen wurden vom alten Format mit Level migriert\n"
                f"• {already_migrated} Nutzer waren bereits im neuen Format"
     )
 
@@ -1758,7 +1758,7 @@ async def pattern_autocomplete(interaction: discord.Interaction, current: str):
     (Hier kannst du z. B. eine statische Liste oder eine aus der Datenbank geladene Liste verwenden.)
     """
     used_patterns = [
-        "{name} ({level}) [{icons}]",
+        "{name} [{icons}]",
     ]
     choices = []
     for p in used_patterns:
@@ -4248,8 +4248,14 @@ async def help_command(interaction: discord.Interaction, category: Optional[str]
             "commands": [
                 {
                     "name": "/migrate_all_users",
-                    "description": "Migriert alle Nutzernamen vom alten Format zum neuen Format mit Level.",
+                    "description": "Migriert alle Nutzernamen vom alten Format mit Level zum neuen Format ohne Level",
                     "example": "/migrate_all_users",
+                    "admin_only": True
+                },
+                {
+                    "name": "/migrate_remove_levels",
+                    "description": "Entfernt die Level-Klammer aus allen Nutzernamen",
+                    "example": "/migrate_remove_levels",
                     "admin_only": True
                 },
                 {
@@ -4267,7 +4273,7 @@ async def help_command(interaction: discord.Interaction, category: Optional[str]
                 {
                     "name": "/set_pattern",
                     "description": "Setzt das globale Namensmuster für alle Mitglieder.",
-                    "example": "/set_pattern pattern:{name} ({level}) [{icons}]",
+                    "example": "/set_pattern pattern:{name} [{icons}]",
                     "admin_only": True
                 },
                 {
